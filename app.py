@@ -39,17 +39,18 @@ if not st.session_state["autenticado"]:
     st.text_input("Digite a senha:", type="password", key="senha_digitada")
     st.button("Entrar", on_click=verificar_senha)
     st.stop()
-
 # --- CARREGAMENTO INICIAL DOS DADOS DA NUVEM ---
+df_estoque = pd.DataFrame(columns=['Codigo', 'Descricao', 'Quantidade', 'Preco']) # Cria um vazio por segurança
+
 try:
     df_estoque = carregar_dados("estoque_gps")
-    # Garante que as colunas tenham o formato correto para não dar erro nos cálculos
+    # Garante que as colunas tenham o formato correto
     df_estoque['Codigo'] = df_estoque['Codigo'].astype(str)
     df_estoque['Quantidade'] = pd.to_numeric(df_estoque['Quantidade']).fillna(0).astype(int)
     df_estoque['Preco'] = pd.to_numeric(df_estoque['Preco']).fillna(0.0)
 except Exception as e:
-    st.error("Erro ao ler a aba 'estoque_gps'. Verifique se o nome está correto na planilha do Google.")
-    st.stop()
+    st.error(f"Atenção: Não foi possível conectar ao Google Sheets. Verifique o arquivo secrets.toml e os nomes das abas. Erro: {e}")
+    # O código vai continuar, mas com a tabela vazia até conectar
 
 # --- INTERFACE PRINCIPAL ---
 st.title("📦 Sistema de Estoque GPS - Google Sheets")
