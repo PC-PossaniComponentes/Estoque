@@ -14,8 +14,9 @@ st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados(aba):
-    # Lê os dados da aba específica (worksheet) diretamente da nuvem
-    return conn.read(worksheet=aba, ttl=0) # ttl=0 garante que pegue o dado em tempo real
+    # Mudança: Vamos dizer ao código exatamente qual é o link aqui dentro também
+    url = "https://docs.google.com/spreadsheets/d/1GixbU30cjCRFZ8FN-LOFWJfzxNgX-Ae3YH5cx2lQEZk/edit?pli=1&gid=47618822#gid=47618822"
+    return conn.read(spreadsheet=url, worksheet=aba, ttl=0)
 
 def salvar_dados(df, aba):
     # Atualiza a planilha no Google Sheets
@@ -39,6 +40,7 @@ if not st.session_state["autenticado"]:
     st.text_input("Digite a senha:", type="password", key="senha_digitada")
     st.button("Entrar", on_click=verificar_senha)
     st.stop()
+
 # --- CARREGAMENTO INICIAL DOS DADOS DA NUVEM ---
 df_estoque = pd.DataFrame(columns=['Codigo', 'Descricao', 'Quantidade', 'Preco']) # Cria um vazio por segurança
 
