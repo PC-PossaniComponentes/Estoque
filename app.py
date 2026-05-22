@@ -1,46 +1,41 @@
 import streamlit as st
 import pandas as pd
-import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# --- CONFIGURAÇÕES DE ARQUIVOS ---
-ARQUIVO_ESTOQUE = 'estoque_gps.csv'
-ARQUIVO_HISTORICO = 'historico_vendas.csv'
-LIMITE_ESTOQUE = 5000
+# --- CONFIGURAÇÕES DE CONEXÃO ---
+def conectar_sheets():
+    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
+             "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name('credenciais.json', scope)
+    client = gspread.authorize(creds)
+    return client.open("Estoque")
 
-# Configuração da página da web
-st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide")
-
-# --- FUNÇÕES DE DADOS (PANDAS) ---
+# --- FUNÇÕES DE DADOS (GOOGLE SHEETS) ---
 def carregar_estoque():
-    if os.path.exists(ARQUIVO_ESTOQUE):
-        df = pd.read_csv(ARQUIVO_ESTOQUE, dtype={'Codigo': str})
-        if 'Preco' not in df.columns: df['Preco'] = 0.0
-        return df
-    return pd.DataFrame(columns=['Codigo', 'Descricao', 'Quantidade', 'Preco'])
+    sh = conectar_sheets()
+    sheet = sh.worksheet("Estoque")
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 def salvar_estoque(df):
-    df.to_csv(ARQUIVO_ESTOQUE, index=False)
+    sh = conectar_sheets()
+    sheet = sh.worksheet("Estoque")
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.values.tolist())
 
 def carregar_historico():
-    if os.path.exists(ARQUIVO_HISTORICO):
-        df_h = pd.read_csv(ARQUIVO_HISTORICO, dtype={'Codigo': str})
-        if 'Cliente' not in df_h.columns: df_h['Cliente'] = 'Não Informado'
-        return df_h
-    return pd.DataFrame(columns=['Data', 'Cliente', 'Codigo', 'Descricao', 'Qtd Vendida', 'Total Venda'])
+    sh = conectar_sheets()
+    sheet = sh.worksheet("Histórico")
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 def salvar_no_historico(cliente, codigo, descricao, qtd, total_venda):
-    df_hist = carregar_historico()
+    sh = conectar_sheets()
+    sheet = sh.worksheet("Histórico")
     data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    novo_registro = pd.DataFrame({
-        'Data': [data_hora], 'Cliente': [cliente], 'Codigo': [codigo], 
-        'Descricao': [descricao], 'Qtd Vendida': [qtd], 'Total Venda': [total_venda]
-    })
-    df_hist = pd.concat([df_hist, novo_registro], ignore_index=True)
-    df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
-   # --- LÓGICA DE SENHA ---
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
+    sheet.append_row([data_hora, cliente, codigo, descricao, qtd, total_venda])
 
 def verificar_senha():
     # O Streamlit busca a chave 'SENHA_DO_SISTEMA' do arquivo secrets.toml
