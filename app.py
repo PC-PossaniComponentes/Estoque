@@ -38,6 +38,23 @@ def salvar_no_historico(cliente, codigo, descricao, qtd, total_venda):
     })
     df_hist = pd.concat([df_hist, novo_registro], ignore_index=True)
     df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
+    # --- LÓGICA DE SENHA ---
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+def verificar_senha():
+    senha_correta = "NOVAloja1!" # Mude aqui sua senha
+    if st.session_state["senha_digitada"] == senha_correta:
+        st.session_state["autenticado"] = True
+        st.session_state["senha_digitada"] = "" 
+    else:
+        st.error("Senha incorreta!")
+
+if not st.session_state["autenticado"]:
+    st.title("🔒 Acesso Restrito")
+    st.text_input("Digite a senha:", type="password", key="senha_digitada")
+    st.button("Entrar", on_click=verificar_senha)
+    st.stop() # Isso impede que o resto do código rode antes da senha
 
 # Carrega os dados para a sessão atual
 df_estoque = carregar_estoque()
