@@ -1,47 +1,33 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import os
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURAÇÕES DE CONEXÃO ---
-def conectar_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
-             "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name('credenciais.json', scope)
-    client = gspread.authorize(creds)
-    return client.open("Estoque")
+# --- CONFIGURAÇÕES ---
+LIMITE_ESTOQUE = 5000
 
-# --- FUNÇÕES DE DADOS (GOOGLE SHEETS) ---
-def carregar_estoque():
-    sh = conectar_sheets()
-    sheet = sh.worksheet("Estoque")
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+# Configuração da página da web
+st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide")
 
-def salvar_estoque(df):
-    sh = conectar_sheets()
-    sheet = sh.worksheet("Estoque")
-    sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.values.tolist())
+# --- CONEXÃO COM GOOGLE SHEETS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carregar_historico():
-    sh = conectar_sheets()
-    sheet = sh.worksheet("Histórico")
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+def carregar_dados(aba):
+    # Lê os dados da aba específica (worksheet) diretamente da nuvem
+    return conn.read(worksheet=aba, ttl=0) # ttl=0 garante que pegue o dado em tempo real
 
-def salvar_no_historico(cliente, codigo, descricao, qtd, total_venda):
-    sh = conectar_sheets()
-    sheet = sh.worksheet("Histórico")
-    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    sheet.append_row([data_hora, cliente, codigo, descricao, qtd, total_venda])
+def salvar_dados(df, aba):
+    # Atualiza a planilha no Google Sheets
+    conn.update(worksheet=aba, data=df)
+    st.cache_data.clear() # Limpa o cache para o Streamlit mostrar o dado novo imediatamente
+
+# --- LÓGICA DE SENHA ---
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
 
 def verificar_senha():
-    # O Streamlit busca a chave 'SENHA_DO_SISTEMA' do arquivo secrets.toml
-    # Se ela não existir, ele retorna None para evitar quebrar o app
-    senha_correta = st.secrets.get("SENHA_DO_SISTEMA")
-    
+    senha_correta = "NOVAloja1!"
     if st.session_state.get("senha_digitada") == senha_correta:
         st.session_state["autenticado"] = True
         st.session_state["senha_digitada"] = "" 
@@ -54,11 +40,19 @@ if not st.session_state["autenticado"]:
     st.button("Entrar", on_click=verificar_senha)
     st.stop()
 
-# Carrega os dados para a sessão atual
-df_estoque = carregar_estoque()
+# --- CARREGAMENTO INICIAL DOS DADOS DA NUVEM ---
+try:
+    df_estoque = carregar_dados("estoque_gps")
+    # Garante que as colunas tenham o formato correto para não dar erro nos cálculos
+    df_estoque['Codigo'] = df_estoque['Codigo'].astype(str)
+    df_estoque['Quantidade'] = pd.to_numeric(df_estoque['Quantidade']).fillna(0).astype(int)
+    df_estoque['Preco'] = pd.to_numeric(df_estoque['Preco']).fillna(0.0)
+except Exception as e:
+    st.error("Erro ao ler a aba 'estoque_gps'. Verifique se o nome está correto na planilha do Google.")
+    st.stop()
 
 # --- INTERFACE PRINCIPAL ---
-st.title("📦 Sistema de Estoque GPS - Versão Web")
+st.title("📦 Sistema de Estoque GPS - Google Sheets")
 st.markdown(f"*Lembrete:* Peças destacadas em vermelho estão com estoque de *{LIMITE_ESTOQUE} un. ou menos*.")
 
 # --- MENU LATERAL (AÇÕES RÁPIDAS) ---
@@ -85,17 +79,17 @@ if acao == "Entrada / Novo":
             else:
                 if codigo in df_estoque['Codigo'].values:
                     df_estoque.loc[df_estoque['Codigo'] == codigo, 'Quantidade'] += qtd
-                    salvar_estoque(df_estoque)
-                    st.sidebar.success("Estoque atualizado com sucesso!")
-                    st.rerun() # Atualiza a página
+                    salvar_dados(df_estoque, "estoque_gps")
+                    st.sidebar.success("Estoque atualizado com sucesso no Google Sheets!")
+                    st.rerun()
                 else:
                     if not desc or preco <= 0:
                         st.sidebar.error("Para peças novas, preencha a Descrição e o Preço!")
                     else:
                         nova_linha = pd.DataFrame({'Codigo': [codigo], 'Descricao': [desc], 'Quantidade': [qtd], 'Preco': [preco]})
                         df_estoque = pd.concat([df_estoque, nova_linha], ignore_index=True)
-                        salvar_estoque(df_estoque)
-                        st.sidebar.success("Nova peça cadastrada!")
+                        salvar_dados(df_estoque, "estoque_gps")
+                        st.sidebar.success("Nova peça cadastrada no Google Sheets!")
                         st.rerun()
 
 elif acao == "Registrar Venda":
@@ -115,16 +109,32 @@ elif acao == "Registrar Venda":
                 if qtd > estoque_atual:
                     st.sidebar.error(f"Estoque insuficiente! Você tem apenas {estoque_atual} un.")
                 else:
-                    preco = float(df_estoque.loc[df_estoque['Codigo'] == codigo, 'Preco'].iloc[0])
+                    preco_unit = float(df_estoque.loc[df_estoque['Codigo'] == codigo, 'Preco'].iloc[0])
                     descricao = df_estoque.loc[df_estoque['Codigo'] == codigo, 'Descricao'].iloc[0]
-                    total_venda = qtd * preco
+                    total_venda = qtd * preco_unit
                     
+                    # 1. Desconta do estoque e atualiza a aba do estoque
                     df_estoque.loc[df_estoque['Codigo'] == codigo, 'Quantidade'] -= qtd
-                    salvar_estoque(df_estoque)
-                    salvar_no_historico(cliente, codigo, descricao, qtd, total_venda)
+                    salvar_dados(df_estoque, "estoque_gps")
                     
-                    st.sidebar.success(f"Venda Registrada!\n\nCliente: {cliente}\nPeça: {descricao}\nTotal: R$ {total_venda:.2f}")
-                    st.rerun()
+                    # 2. Puxa o histórico atual da nuvem, adiciona a nova linha e salva de volta
+                    try:
+                        df_hist = carregar_dados("historico_vendas")
+                        novo_registro = pd.DataFrame({
+                            'Data': [datetime.now().strftime("%d/%m/%Y %H:%M")], 
+                            'Cliente': [cliente], 
+                            'Codigo': [codigo], 
+                            'Descricao': [descricao], 
+                            'Qtd Vendida': [qtd], 
+                            'Total Venda': [total_venda]
+                        })
+                        df_hist = pd.concat([df_hist, novo_registro], ignore_index=True)
+                        salvar_dados(df_hist, "historico_vendas")
+                        
+                        st.sidebar.success(f"Venda salva na nuvem!\n\nCliente: {cliente}\nPeça: {descricao}\nTotal: R$ {total_venda:.2f}")
+                        st.rerun()
+                    except:
+                        st.sidebar.error("Erro ao salvar no histórico. Verifique a aba 'historico_vendas'.")
 
 elif acao == "Simular Orçamento":
     st.sidebar.subheader("📝 Simular Orçamento")
@@ -136,9 +146,9 @@ elif acao == "Simular Orçamento":
         
         if submit:
             if codigo in df_estoque['Codigo'].values:
-                preco = float(df_estoque.loc[df_estoque['Codigo'] == codigo, 'Preco'].iloc[0])
+                preco_unit = float(df_estoque.loc[df_estoque['Codigo'] == codigo, 'Preco'].iloc[0])
                 descricao = df_estoque.loc[df_estoque['Codigo'] == codigo, 'Descricao'].iloc[0]
-                total = qtd * preco
+                total = qtd * preco_unit
                 st.sidebar.info(f"*Peça:* {descricao}\n\n*Quantidade:* {qtd}\n\n*VALOR TOTAL:* R$ {total:.2f}")
             else:
                 st.sidebar.error("Código não encontrado!")
@@ -159,16 +169,16 @@ with aba1:
         mask_desc = df_exibicao['Descricao'].astype(str).str.lower().str.contains(termo)
         df_exibicao = df_exibicao[mask_cod | mask_desc]
 
-    # Formatação de Moeda
+    # Cria colunas calculadas bonitas apenas para exibição visual na tela
     df_exibicao['Preço Unit.'] = df_exibicao['Preco'].apply(lambda x: f"R$ {float(x):.2f}")
     df_exibicao['Total Acumulado'] = (df_exibicao['Preco'] * df_exibicao['Quantidade']).apply(lambda x: f"R$ {float(x):.2f}")
 
     # Função para colorir linhas com estoque baixo
     def destacar_estoque_baixo(row):
-        cor = '#ffcccc' if row['Quantidade'] <= LIMITE_ESTOQUE else ''
+        cor = '#ffcccc' if int(row['Quantidade']) <= LIMITE_ESTOQUE else ''
         return [f'background-color: {cor}' if cor else '' for _ in row]
 
-    # Exibe a tabela interativa
+    # Exibe a tabela do estoque
     st.dataframe(
         df_exibicao[['Codigo', 'Descricao', 'Quantidade', 'Preço Unit.', 'Total Acumulado']].style.apply(destacar_estoque_baixo, axis=1),
         use_container_width=True,
@@ -176,9 +186,14 @@ with aba1:
     )
 
 with aba2:
-    df_hist = carregar_historico()
-    if not df_hist.empty:
-        df_hist['Total Venda'] = df_hist['Total Venda'].apply(lambda x: f"R$ {float(x):.2f}")
-        st.dataframe(df_hist, use_container_width=True, hide_index=True)
-    else:
-        st.info("O histórico de vendas está vazio.")
+    try:
+        df_hist = carregar_dados("historico_vendas")
+        if not df_hist.empty:
+            # Formata a coluna de preço se ela tiver dados numéricos
+            df_hist_exibicao = df_hist.copy()
+            df_hist_exibicao['Total Venda'] = pd.to_numeric(df_hist_exibicao['Total Venda']).apply(lambda x: f"R$ {float(x):.2f}")
+            st.dataframe(df_hist_exibicao, use_container_width=True, hide_index=True)
+        else:
+            st.info("O histórico de vendas na nuvem está vazio.")
+    except:
+        st.info("Não foi possível carregar o histórico ou a aba 'historico_vendas' está vazia.")
