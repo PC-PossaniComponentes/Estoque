@@ -96,7 +96,7 @@ st.title("📦 Sistema de Estoque GPS")
 st.sidebar.header("🛠️ Menu")
 acao = st.sidebar.radio(
     "Navegação:", 
-    ["Entrada", "Estoque", "Venda", "Orçamento", "Trocas", "Histórico de Vendas", "Histórico de Trocas", "Pedidos"]
+    ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Histórico de Vendas", "Histórico de Trocas", "Pedidos"]
 )
 
 # --- ABA 1: ESTOQUE ---
@@ -171,7 +171,84 @@ if acao == "Estoque":
                     salvar_dados(df_estoque, "estoque_gps")
                     st.warning(f"Produto {cod_excluir} removido!")
                     st.rerun()
+# --- ABA: CATÁLOGO ---
+elif acao == "Catálogo":
+    st.subheader("🖼️ Catálogo de Peças")
+    
+    # Carrega dados do catálogo
+    try:
+        df_cat = carregar_dados("catalogo_gps")
+        df_cat['Codigo'] = df_cat['Codigo'].astype(str)
+        df_cat['Descricao'] = df_cat['Descricao'].fillna("").astype(str)
+    except:
+        df_cat = pd.DataFrame(columns=['Codigo', 'Descricao', 'Preco', 'Anotacoes', 'Link_Foto'])
 
+    # Busca
+    termo_cat = st.text_input("🔍 Buscar peça no catálogo").lower()
+    if termo_cat:
+        mask = df_cat['Codigo'].str.lower().str.contains(termo_cat) | \
+               df_cat['Descricao'].str.lower().str.contains(termo_cat)
+        df_cat = df_cat[mask]
+
+    # --- INÍCIO DA PAGINAÇÃO ---
+    itens_por_pagina = 20
+    total_paginas = max(1, int(len(df_cat) / itens_por_pagina) + 1)
+    pagina = st.number_input("Página", min_value=1, max_value=total_paginas, value=1)
+    
+    inicio = (pagina - 1) * itens_por_pagina
+    fim = inicio + itens_por_pagina
+    df_paginado = df_cat.iloc[inicio:fim]
+    # --- FIM DA PAGINAÇÃO ---
+
+    # Adicionar nova peça ao catálogo
+    with st.expander("➕ Adicionar/Editar Peça no Catálogo"):
+        c_cod, c_desc = st.columns(2)
+        novo_cod = c_cod.text_input("Código da Peça").strip()
+        nova_desc = c_desc.text_input("Descrição")
+        
+        c_prec, c_link = st.columns(2)
+        novo_preco = c_prec.number_input("Preço", min_value=0.0)
+        novo_link = c_link.text_input("Link da Foto (URL)")
+        nova_nota = st.text_area("Anotações")
+        
+        if st.button("Salvar no Catálogo"):
+            nova_linha = pd.DataFrame({'Codigo': [novo_cod], 'Descricao': [nova_desc], 'Preco': [novo_preco], 
+                                     'Anotacoes': [nova_nota], 'Link_Foto': [novo_link]})
+            if novo_cod in df_cat['Codigo'].values:
+                idx = df_cat[df_cat['Codigo'] == novo_cod].index[0]
+                df_cat.loc[idx] = nova_linha.iloc[0]
+            else:
+                df_cat = pd.concat([df_cat, nova_linha], ignore_index=True)
+            salvar_dados(df_cat, "catalogo_gps")
+            st.success("Peça salva!")
+            st.rerun()
+
+    # Exibição em Grid (usando o df_paginado)
+    if df_paginado.empty:
+        st.info("Catálogo vazio ou página sem itens.")
+    else:
+        cols = st.columns(3)
+        # Usamos enumerate para garantir que o i seja sempre 0, 1, 2...
+        for i, (idx, row) in enumerate(df_paginado.iterrows()):
+            with cols[i % 3]:
+                link = row.get('Link_Foto', '')
+                if link and str(link).startswith('http'):
+                    st.image(link, use_container_width=True)
+                else:
+                    st.warning("Sem imagem")
+                
+                st.write(f"**{row['Descricao']}**")
+                st.caption(f"Código: {row['Codigo']}")
+                st.write(f"Preço: R$ {row['Preco']:.2f}")
+                
+                with st.expander("📝 Anotações"):
+                    st.write(row['Anotacoes'])
+                
+                if st.button(f"🗑️ Excluir {row['Codigo']}", key=f"del_{row['Codigo']}"):
+                    df_cat = df_cat[df_cat['Codigo'] != row['Codigo']]
+                    salvar_dados(df_cat, "catalogo_gps")
+                    st.rerun()
+                st.markdown("---")
 # --- ABA 2: ENTRADA ---
 elif acao == "Entrada":
     st.subheader("📥 Dar Entrada / Ajustar Peças")
@@ -541,7 +618,7 @@ elif acao == "Histórico de Trocas":
             st.info("Nenhum registro de troca foi localizado.")
     except Exception:
         st.warning("⚠️ A aba 'historico_trocas' ainda não foi criada no Google Sheets ou está vazia.")
-# --- ABA: PEDIDOS ---
+# --- ABA 7: PEDIDOS ---
 elif acao == "Pedidos":
     st.subheader("📝 Gestão de Pedidos (Multi-itens)")
 
@@ -564,55 +641,47 @@ elif acao == "Pedidos":
                 })
                 st.rerun()
 
-    # 2. VISUALIZAÇÃO DO CARRINHO DE PEDIDOS
+    # 2. VISUALIZAÇÃO E FINALIZAÇÃO DO CARRINHO
     if st.session_state["carrinho_pedidos"]:
         st.write("### 🛒 Itens deste Pedido")
-        df_carrinho_p = pd.DataFrame(st.session_state["carrinho_pedidos"])
-        st.table(df_carrinho_p)
+        st.table(pd.DataFrame(st.session_state["carrinho_pedidos"]))
         
         if st.button("❌ Limpar este Pedido"):
             st.session_state["carrinho_pedidos"] = []
             st.rerun()
             
         st.markdown("---")
-        # 3. DADOS DE ENTREGA E FINALIZAÇÃO
         c_cli, c_data = st.columns(2)
         cli_p = c_cli.text_input("Nome do Cliente (Pedido):")
         data_entrega = c_data.date_input("Data de Entrega Prometida:")
         
-    if st.button("✅ Confirmar Pedido Completo", type="primary"):
+        if st.button("✅ Confirmar Pedido Completo", type="primary"):
             agora = datetime.now()
             id_pedido = agora.strftime('%Y%m%d%H%M%S')
             
-            # --- CORREÇÃO DO NOME DA VARIÁVEL ---
-            # Vamos usar "novos_itens_pedido" (com "o") em tudo
-            novos_itens_pedido = pd.DataFrame(st.session_state["carrinho_pedidos"].copy())
-            
-            novos_itens_pedido['ID_Pedido'] = id_pedido
-            novos_itens_pedido['Data do Pedido'] = agora.strftime('%d/%m/%Y')
-            novos_itens_pedido['Horario'] = agora.strftime('%H:%M:%S')
-            novos_itens_pedido['Cliente'] = cli_p
-            novos_itens_pedido['Data de Entrega'] = data_entrega.strftime('%d/%m/%Y')
+            novos = pd.DataFrame(st.session_state["carrinho_pedidos"].copy())
+            novos['ID_Pedido'] = id_pedido
+            novos['Data do Pedido'] = agora.strftime('%d/%m/%Y')
+            novos['Horario'] = agora.strftime('%H:%M:%S')
+            novos['Cliente'] = cli_p
+            novos['Data de Entrega'] = data_entrega.strftime('%d/%m/%Y')
             
             try:
-                df_pedidos_existentes = carregar_dados("pedidos")
+                df_p = carregar_dados("pedidos")
             except:
-                df_pedidos_existentes = pd.DataFrame()
+                df_p = pd.DataFrame()
                 
-            # Agora concatenamos a variável que definimos acima
-            salvar_dados(pd.concat([df_pedidos_existentes, novos_itens_pedido], ignore_index=True), "pedidos")
-            
-            st.session_state["carrinho_pedidos"] = [] # Limpa carrinho
-            st.success(f"✅ Pedido {id_pedido} registrado com sucesso!")
+            salvar_dados(pd.concat([df_p, novos], ignore_index=True), "pedidos")
+            st.session_state["carrinho_pedidos"] = []
+            st.success(f"✅ Pedido {id_pedido} registrado!")
             st.rerun()
 
-    # --- 4. LISTAGEM DE PEDIDOS PENDENTES (AGRUPADA) ---
+    # 3. LISTAGEM DE PEDIDOS PENDENTES
     st.markdown("---")
     st.write("### 📋 Pedidos na Fila de Espera")
     try:
         df_p_lista = carregar_dados("pedidos")
         if not df_p_lista.empty:
-            # Resumo por ID_Pedido
             resumo_p = df_p_lista.groupby('ID_Pedido').agg({
                 'Cliente': 'first',
                 'Data de Entrega': 'first',
@@ -623,7 +692,6 @@ elif acao == "Pedidos":
             
             with st.expander("🔍 Ver Detalhes / Finalizar Pedido"):
                 id_sel = st.selectbox("Selecione o ID do Pedido:", df_p_lista['ID_Pedido'].unique().tolist())
-                # Mostra o que tem dentro desse pedido específico
                 st.write(df_p_lista[df_p_lista['ID_Pedido'] == id_sel][['Codigo', 'Descricao', 'Quantidade']])
                 
                 if st.button("🗑️ Marcar como Entregue / Excluir"):
@@ -634,4 +702,4 @@ elif acao == "Pedidos":
         else:
             st.info("Não há pedidos pendentes.")
     except:
-        st.info("Aba 'pedidos' ainda não contém registros.")
+        st.info("Aba 'pedidos' ainda não contém registros ou está vazia.")
