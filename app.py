@@ -5,9 +5,12 @@ from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
-# --- INICIALIZAÇÃO DO CARRINHO (COLE AQUI) ---
+# --- INICIALIZAÇÃO DOS CARRINHOS ---
 if "carrinho" not in st.session_state:
     st.session_state["carrinho"] = []
+
+if "carrinho_pedidos" not in st.session_state: # <--- ADICIONE ESTA LINHA
+    st.session_state["carrinho_pedidos"] = []
 
 # --- ALARME DE CREDENCIAIS (NOVO) ---
 if "connections" not in st.secrets or "gsheets" not in st.secrets["connections"]:
@@ -93,7 +96,7 @@ st.title("📦 Sistema de Estoque GPS")
 st.sidebar.header("🛠️ Menu")
 acao = st.sidebar.radio(
     "Navegação:", 
-    ["Estoque", "Entrada", "Venda", "Histórico de Vendas", "Orçamento", "Trocas", "Histórico de Trocas"]
+    ["Entrada", "Estoque", "Venda", "Orçamento", "Trocas", "Histórico de Vendas", "Histórico de Trocas", "Pedidos"]
 )
 
 # --- ABA 1: ESTOQUE ---
@@ -538,3 +541,97 @@ elif acao == "Histórico de Trocas":
             st.info("Nenhum registro de troca foi localizado.")
     except Exception:
         st.warning("⚠️ A aba 'historico_trocas' ainda não foi criada no Google Sheets ou está vazia.")
+# --- ABA: PEDIDOS ---
+elif acao == "Pedidos":
+    st.subheader("📝 Gestão de Pedidos (Multi-itens)")
+
+    # 1. EXPANDER PARA ADICIONAR PEÇAS AO PEDIDO
+    with st.expander("➕ Adicionar Peças à Encomenda", expanded=True):
+        cod_p = st.text_input("Código da Peça para Pedido:").strip()
+        
+        if cod_p in df_estoque['Codigo'].values:
+            idx = df_estoque[df_estoque['Codigo'] == cod_p].index[0]
+            desc_p = df_estoque.at[idx, 'Descricao']
+            
+            c1, c2 = st.columns(2)
+            qtd_p = c1.number_input("Quantidade Pedida", min_value=1, value=1)
+            
+            if st.button("Adicionar ao Carrinho de Pedidos"):
+                st.session_state["carrinho_pedidos"].append({
+                    "Codigo": cod_p, 
+                    "Descricao": desc_p, 
+                    "Quantidade": qtd_p
+                })
+                st.rerun()
+
+    # 2. VISUALIZAÇÃO DO CARRINHO DE PEDIDOS
+    if st.session_state["carrinho_pedidos"]:
+        st.write("### 🛒 Itens deste Pedido")
+        df_carrinho_p = pd.DataFrame(st.session_state["carrinho_pedidos"])
+        st.table(df_carrinho_p)
+        
+        if st.button("❌ Limpar este Pedido"):
+            st.session_state["carrinho_pedidos"] = []
+            st.rerun()
+            
+        st.markdown("---")
+        # 3. DADOS DE ENTREGA E FINALIZAÇÃO
+        c_cli, c_data = st.columns(2)
+        cli_p = c_cli.text_input("Nome do Cliente (Pedido):")
+        data_entrega = c_data.date_input("Data de Entrega Prometida:")
+        
+    if st.button("✅ Confirmar Pedido Completo", type="primary"):
+            agora = datetime.now()
+            id_pedido = agora.strftime('%Y%m%d%H%M%S')
+            
+            # --- CORREÇÃO DO NOME DA VARIÁVEL ---
+            # Vamos usar "novos_itens_pedido" (com "o") em tudo
+            novos_itens_pedido = pd.DataFrame(st.session_state["carrinho_pedidos"].copy())
+            
+            novos_itens_pedido['ID_Pedido'] = id_pedido
+            novos_itens_pedido['Data do Pedido'] = agora.strftime('%d/%m/%Y')
+            novos_itens_pedido['Horario'] = agora.strftime('%H:%M:%S')
+            novos_itens_pedido['Cliente'] = cli_p
+            novos_itens_pedido['Data de Entrega'] = data_entrega.strftime('%d/%m/%Y')
+            
+            try:
+                df_pedidos_existentes = carregar_dados("pedidos")
+            except:
+                df_pedidos_existentes = pd.DataFrame()
+                
+            # Agora concatenamos a variável que definimos acima
+            salvar_dados(pd.concat([df_pedidos_existentes, novos_itens_pedido], ignore_index=True), "pedidos")
+            
+            st.session_state["carrinho_pedidos"] = [] # Limpa carrinho
+            st.success(f"✅ Pedido {id_pedido} registrado com sucesso!")
+            st.rerun()
+
+    # --- 4. LISTAGEM DE PEDIDOS PENDENTES (AGRUPADA) ---
+    st.markdown("---")
+    st.write("### 📋 Pedidos na Fila de Espera")
+    try:
+        df_p_lista = carregar_dados("pedidos")
+        if not df_p_lista.empty:
+            # Resumo por ID_Pedido
+            resumo_p = df_p_lista.groupby('ID_Pedido').agg({
+                'Cliente': 'first',
+                'Data de Entrega': 'first',
+                'Quantidade': 'sum'
+            }).rename(columns={'Quantidade': 'Total de Peças'})
+            
+            st.dataframe(resumo_p.sort_values(by='Data de Entrega'), use_container_width=True)
+            
+            with st.expander("🔍 Ver Detalhes / Finalizar Pedido"):
+                id_sel = st.selectbox("Selecione o ID do Pedido:", df_p_lista['ID_Pedido'].unique().tolist())
+                # Mostra o que tem dentro desse pedido específico
+                st.write(df_p_lista[df_p_lista['ID_Pedido'] == id_sel][['Codigo', 'Descricao', 'Quantidade']])
+                
+                if st.button("🗑️ Marcar como Entregue / Excluir"):
+                    df_p_lista = df_p_lista[df_p_lista['ID_Pedido'] != id_sel]
+                    salvar_dados(df_p_lista, "pedidos")
+                    st.warning(f"Pedido {id_sel} removido da fila!")
+                    st.rerun()
+        else:
+            st.info("Não há pedidos pendentes.")
+    except:
+        st.info("Aba 'pedidos' ainda não contém registros.")
