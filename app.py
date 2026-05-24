@@ -5,21 +5,38 @@ from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
+# --- ALARME DE CREDENCIAIS (NOVO) ---
+if "connections" not in st.secrets or "gsheets" not in st.secrets["connections"]:
+    st.error("🚨 Erro: O arquivo secrets.toml não está configurado corretamente (bloco [connections.gsheets] ausente).")
+    st.stop()
+
+if st.secrets["connections"]["gsheets"].get("type") != "service_account":
+    st.error("🚨 Erro: A linha `type = \"service_account\"` está faltando ou escrita errada no secrets.toml.")
+    st.stop()
+
 # --- CONFIGURAÇÕES SEGURAS ---
-# A URL e a senha agora devem vir do secrets.toml
-URL_DA_PLANILHA = st.secrets.get("URL_DA_PLANILHA", "COLOQUE_SUA_URL_AQUI_SE_NAO_USAR_SECRETS")
-SENHA_SISTEMA = st.secrets.get("SENHA_SISTEMA", "NOVAloja1!")
+URL_DA_PLANILHA = st.secrets.get("URL_DA_PLANILHA")
+SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
 # Conexão oficial
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- TRAVA DE SEGURANÇA FINAL ---
+# Bloqueia e avisa se o robô virou anônimo por causa de erro no secrets.toml
+if "Public" in str(type(conn.client)):
+    st.error("🚨 O Streamlit achou um erro invisível no seu secrets.toml e tentou entrar como Anônimo.")
+    st.warning("👉 **Como resolver:** \n1. Verifique se você trocou os traços `-` por `=` como falamos. \n2. Verifique se a sua `private_key` está exata, não pode faltar nenhuma aspa ou `\\n`. \n3. **CRÍTICO:** Pare o robô no terminal (Ctrl + C) e rode `streamlit run app.py` novamente!")
+    st.stop()
+
 def carregar_dados(aba):
-    # O ttl=600 faz o cache automático por 10 minutos
-    return conn.read(spreadsheet=URL_DA_PLANILHA, worksheet=aba, ttl=600)
+    # O bot VIP agora pode usar a rota expressa sem tomar Erro 404!
+    return conn.read(worksheet=aba, ttl=600)
 
 def salvar_dados(df, aba):
-    conn.update(spreadsheet=URL_DA_PLANILHA, worksheet=aba, data=df)
-    st.cache_data.clear() # Limpa o cache para refletir a mudança imediatamente
+    conn.update(worksheet=aba, data=df)
+    st.cache_data.clear()
+
+# ... DAQUI PARA BAIXO O SEU CÓDIGO (Lógica de acesso, menus, etc) CONTINUA EXATAMENTE IGUAL ...
 
 # --- LÓGICA DE ACESSO ---
 if "autenticado" not in st.session_state:
@@ -212,3 +229,146 @@ elif acao == "Venda":
 # As demais abas (Histórico, Orçamento, Trocas) seguem a mesma lógica otimizada...
 # Adicionei tratamento similar para evitar quebras.
 # (Por brevidade, abas 4 a 7 mantêm a estrutura original, mas aplique `.strip()` nos inputs de texto e chame st.dataframe com tratamento seguro).
+# --- ABA 4: HISTÓRICO DE VENDAS ---
+elif acao == "Histórico de Vendas":
+    st.subheader("📊 Relatório de Vendas Realizadas")
+    try:
+        df_historico = carregar_dados("historico_vendas")
+        if not df_historico.empty:
+            filtro = st.text_input("🔍 Filtrar histórico de vendas:").lower()
+            df_filtrado = df_historico.copy()
+            if filtro:
+                mask_hist = (
+                    df_filtrado['Cliente'].astype(str).str.lower().str.contains(filtro) |
+                    df_filtrado['Codigo'].astype(str).str.lower().str.contains(filtro) |
+                    df_filtrado['Descricao'].astype(str).str.lower().str.contains(filtro)
+                )
+                df_filtrado = df_filtrado[mask_hist]
+            
+            df_filtrado = df_filtrado.iloc[::-1]
+            df_filtrado['Valor Unitario'] = pd.to_numeric(df_filtrado['Valor Unitario'], errors='coerce').fillna(0).apply(lambda x: f"R$ {x:.2f}")
+            df_filtrado['Valor Total'] = pd.to_numeric(df_filtrado['Valor Total'], errors='coerce').fillna(0).apply(lambda x: f"R$ {x:.2f}")
+            df_filtrado['Desconto R$'] = pd.to_numeric(df_filtrado['Desconto R$'], errors='coerce').fillna(0).apply(lambda x: f"R$ {x:.2f}")
+            
+            st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum registro de venda encontrado.")
+    except Exception as e:
+        st.warning("⚠️ A aba 'historico_vendas' ainda não foi configurada ou está vazia.")
+
+# --- ABA 5: ORÇAMENTO ---
+elif acao == "Orçamento":
+    st.subheader("🧮 Calculadora de Orçamento")
+    cod_o = st.text_input("Digite o Código da Peça:").strip()
+    
+    if cod_o:
+        if cod_o in df_estoque['Codigo'].values:
+            idx = df_estoque[df_estoque['Codigo'] == cod_o].index[0]
+            desc_o = df_estoque.at[idx, 'Descricao']
+            preco_base_o = float(df_estoque.at[idx, 'Preco'])
+            
+            st.info(f"📦 **Modelo Selecionado:** {desc_o}")
+            
+            c1, c2, c3 = st.columns(3)
+            qtd_o = c1.number_input("Quantidade Desejada", min_value=1, value=1)
+            preco_o = c2.number_input("Valor Unitário Customizado (R$)", min_value=0.0, value=preco_base_o, step=0.5)
+            desconto_o = c3.number_input("Abatimento / Desconto (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
+            
+            total_bruto = qtd_o * preco_o
+            valor_desconto = total_bruto * (desconto_o / 100)
+            total_liquido = total_bruto - valor_desconto
+            
+            st.markdown("---")
+            cm1, cm2, cm3 = st.columns(3)
+            cm1.metric("Valor Bruto Total", f"R$ {total_bruto:.2f}")
+            cm2.metric("Desconto total", f"R$ {valor_desconto:.2f} ({desconto_o}%)")
+            cm3.metric("Valor com Desconto", f"R$ {total_liquido:.2f}")
+        else:
+            st.error("❌ Modelo não localizado.")
+
+# --- ABA 6: REALIZAR TROCAS ---
+elif acao == "Trocas":
+    st.subheader("🔄 Registrar Troca de Peça Defeituosa")
+    cod_t = st.text_input("Digite o Código da Peça para Troca:").strip()
+    
+    if cod_t:
+        if cod_t in df_estoque['Codigo'].values:
+            idx = df_estoque[df_estoque['Codigo'] == cod_t].index[0]
+            desc_t = df_estoque.at[idx, 'Descricao']
+            qtd_disponivel = int(df_estoque.at[idx, 'Quantidade'])
+            
+            st.info(f"📦 **Peça:** {desc_t}  |  🔹 **Disponível para reposição:** {qtd_disponivel} unidades")
+            
+            with st.form("form_trocas"):
+                c1, c2 = st.columns(2)
+                qtd_chegou = c1.number_input("Qtd de peças DEFEITUOSAS que CHEGARAM", min_value=0, value=1)
+                qtd_saiu = c2.number_input("Qtd de peças NOVAS que SAÍRAM", min_value=0, max_value=max(1, qtd_disponivel), value=1)
+                
+                cli_t = st.text_input("Nome do Cliente / Fabricante:")
+                anotacoes_t = st.text_area("Motivo do defeito ou observações:")
+                
+                diferenca = qtd_saiu - qtd_chegou
+                
+                st.markdown("---")
+                if diferenca > 0:
+                    st.warning(f"⚠️ O cliente está levando {diferenca} peça(s) a mais do que devolveu.")
+                elif diferenca < 0:
+                    st.info(f"📉 O cliente devolveu {abs(diferenca)} peça(s) a mais do que levou (Ficou com crédito).")
+                else:
+                    st.success("✅ Troca equivalente (1 por 1). Nenhuma diferença de quantidade.")
+                    
+                submit_troca = st.form_submit_button("Finalizar e Registrar Troca", type="primary")
+                
+                if submit_troca:
+                    if qtd_disponivel >= qtd_saiu:
+                        df_estoque.at[idx, 'Quantidade'] -= qtd_saiu
+                        salvar_dados(df_estoque, "estoque_gps")
+                        
+                        agora = datetime.now()
+                        nova_troca = pd.DataFrame([{
+                            'Data': agora.strftime('%d/%m/%Y'),
+                            'Horario': agora.strftime('%H:%M:%S'),
+                            'Codigo': str(cod_t),
+                            'Descricao': desc_t,
+                            'Qtd Defeituosas': int(qtd_chegou),
+                            'Qtd Novas Sairam': int(qtd_saiu),
+                            'Diferenca': int(diferenca),
+                            'Cliente': cli_t,
+                            'Anotacoes': anotacoes_t
+                        }])
+                        
+                        try:
+                            df_hist_t = carregar_dados("historico_trocas")
+                            df_hist_t = pd.concat([df_hist_t, nova_troca], ignore_index=True)
+                        except Exception:
+                            df_hist_t = nova_troca
+                            
+                        salvar_dados(df_hist_t, "historico_trocas")
+                        st.success("✅ Troca registrada e salva no histórico com sucesso!")
+                    else:
+                        st.error("❌ Não há estoque novo suficiente para realizar essa saída.")
+        else:
+            st.error("❌ Peça não encontrada no estoque.")
+
+# --- ABA 7: HISTÓRICO DE TROCAS ---
+elif acao == "Histórico de Trocas":
+    st.subheader("📊 Histórico Geral de Trocas e Peças Defeituosas")
+    try:
+        df_hist_trocas = carregar_dados("historico_trocas")
+        if not df_hist_trocas.empty:
+            filtro_t = st.text_input("🔍 Filtrar por Cliente, Código ou Defeito:").lower()
+            df_f_t = df_hist_trocas.copy()
+            
+            if filtro_t:
+                mask_t = (
+                    df_f_t['Cliente'].astype(str).str.lower().str.contains(filtro_t) |
+                    df_f_t['Codigo'].astype(str).str.lower().str.contains(filtro_t) |
+                    df_f_t['Anotacoes'].astype(str).str.lower().str.contains(filtro_t)
+                )
+                df_f_t = df_f_t[mask_t]
+                
+            st.dataframe(df_f_t.iloc[::-1], use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum registro de troca foi localizado.")
+    except Exception:
+        st.warning("⚠️ A aba 'historico_trocas' ainda não foi criada no Google Sheets ou está vazia.")
