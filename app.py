@@ -5,9 +5,6 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 from streamlit_pdf_viewer import pdf_viewer
 import PyPDF2
-import requests
-import os
-import tempfile
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
@@ -137,13 +134,10 @@ elif acao == "Entrada":
             salvar_dados(df_estoque, "estoque_gps")
             st.rerun()
 
-                elif acao == "Catálogo":
+elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
-    
-    # A busca agora é direta no arquivo local
     termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
     pag = None
-
     if termo:
         encontrado = False
         with open(arquivo, "rb") as f:
@@ -154,11 +148,8 @@ elif acao == "Entrada":
                     pag = i + 1
                     encontrado = True
                     break
-        if not encontrado: 
-            st.warning("Código não encontrado.")
-            
+        if not encontrado: st.warning("Código não encontrado.")
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
-    
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
