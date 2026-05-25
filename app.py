@@ -104,6 +104,19 @@ except:
 
 # --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
+# Código para fixar o input no topo
+st.markdown("""
+    <style>
+    div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        background-color: white; /* Garante que não fique transparente */
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 if acao == "Estoque":
@@ -138,28 +151,49 @@ elif acao == "Entrada":
 elif acao == "Catálogo":
     import requests
     import os
-    
-    arquivo = "catalogo_oficial.pdf"
-    # AQUI ESTÁ A CORREÇÃO:
+    import tempfile
+
+    # Função com Cache para baixar e carregar o PDF apenas uma vez
+    @st.cache_data
+    def carregar_pdf_com_cache(url):
+        response = requests.get(url)
+        # Salva em um arquivo temporário do sistema
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_file.write(response.content)
+        temp_file.close()
+        return temp_file.name
+
     url_do_pdf = "https://drive.google.com/uc?export=download&id=1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS"
     
-    # Baixa o arquivo se não existir na nuvem
-    if not os.path.exists(arquivo):
-        with st.spinner("Baixando catálogo do servidor (primeira vez)..."):
-            response = requests.get(url_do_pdf)
-            with open(arquivo, "wb") as f:
-                f.write(response.content)
-            
+    with st.spinner("Preparando catálogo..."):
+        try:
+            caminho_pdf = carregar_pdf_com_cache(url_do_pdf)
+        except Exception as e:
+            st.error(f"Erro ao baixar PDF: {e}")
+            st.stop()
+
     termo = st.text_input("Buscar código:").strip().upper()
     pag = None
+
     if termo:
-        with open(arquivo, "rb") as f:
+        # Busca otimizada
+        encontrado = False
+        with open(caminho_pdf, "rb") as f:
             reader = PyPDF2.PdfReader(f)
+            # Dica: Verifique se o PDF tem texto extraível
             for i, p in enumerate(reader.pages):
-                if termo in p.extract_text().upper():
+                texto = p.extract_text()
+                if texto and termo in texto.upper():
                     pag = i + 1
+                    encontrado = True
                     break
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+        
+        if not encontrado:
+            st.warning("Código não encontrado no PDF. Verifique se o PDF permite extração de texto.")
+        else:
+            st.success(f"Código encontrado na página {pag}!")
+
+    pdf_viewer(caminho_pdf, scroll_to_page=pag if pag else 1)
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
