@@ -1,2 +1,5 @@
-pandas
 streamlit
+pandas
+streamlit-gsheets
+streamlit-pdf-viewer
+PyPDF2
