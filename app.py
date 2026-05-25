@@ -137,20 +137,18 @@ elif acao == "Entrada":
 elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
 
-    # 1. Esta função processa o PDF uma ÚNICA vez e guarda na memória (cache)
+    # Função indexadora em cache
     @st.cache_data
     def processar_texto_pdf(caminho):
         texto_paginas = {}
         with open(caminho, "rb") as f:
             reader = PyPDF2.PdfReader(f)
-            # Lê todas as páginas uma única vez e cria um índice {num_pagina: "texto da pagina"}
             for i, p in enumerate(reader.pages):
                 texto = p.extract_text()
                 if texto:
-                    texto_paginas[i + 1] = texto.upper() # Converte tudo para maiúsculas para facilitar a busca
+                    texto_paginas[i + 1] = texto.upper()
         return texto_paginas
 
-    # 2. Carrega o índice (Se já estiver em cache, é instantâneo)
     with st.spinner("Otimizando catálogo..."):
         try:
             indice_texto = processar_texto_pdf(arquivo)
@@ -158,29 +156,21 @@ elif acao == "Catálogo":
             st.error(f"Erro ao carregar PDF: {e}")
             st.stop()
 
-    # 3. Busca no índice (Rápido, sem abrir o arquivo novamente)
     termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
     pag = None
 
     if termo:
         encontrado = False
-        # Busca no dicionário em memória (milissegundos)
         for num_pag, texto in indice_texto.items():
             if termo in texto:
                 pag = num_pag
                 encontrado = True
                 break
-        
-        if not encontrado: 
-            st.warning("Código não encontrado.")
-        else:
-            st.success(f"Código encontrado na página {pag}!")
+        if not encontrado: st.warning("Código não encontrado.")
+        else: st.success(f"Encontrado na página {pag}!")
 
-    # 4. Exibe o PDF
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
-
-
-
+    # Chave 'key' adicionada para evitar carregamento do zero
+    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1, key="viewer_pdf")
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
