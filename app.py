@@ -37,7 +37,6 @@ def salvar_dados(df, aba):
     spreadsheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
     worksheet = spreadsheet.worksheet(aba)
     worksheet.clear()
-    # Adiciona colunas e dados
     data = [df.columns.values.tolist()] + df.values.tolist()
     worksheet.update(data)
     st.cache_data.clear()
@@ -104,19 +103,6 @@ except:
 
 # --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
-# Código para fixar o input no topo
-st.markdown("""
-    <style>
-    div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        background-color: white; /* Garante que não fique transparente */
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
-    </style>
-""", unsafe_allow_html=True)
 acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 if acao == "Estoque":
