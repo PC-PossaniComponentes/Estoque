@@ -104,19 +104,7 @@ except:
 
 # --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
-# Código para fixar o input no topo
-st.markdown("""
-    <style>
-    div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        background-color: white; /* Garante que não fique transparente */
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+
 acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 if acao == "Estoque":
@@ -172,7 +160,7 @@ elif acao == "Catálogo":
             st.error(f"Erro ao baixar PDF: {e}")
             st.stop()
 
-    termo = st.text_input("Buscar código:").strip().upper()
+    termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip
     pag = None
 
     if termo:
