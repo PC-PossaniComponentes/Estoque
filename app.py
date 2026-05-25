@@ -136,7 +136,20 @@ elif acao == "Entrada":
             st.rerun()
 
 elif acao == "Catálogo":
+    import requests
+    import os
+    
     arquivo = "catalogo_oficial.pdf"
+    # SUBSTITUA O LINK ABAIXO PELO SEU LINK DO DRIVE FORMATADO COMO ENSINEI
+    url_do_pdf = "1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS" 
+    
+    # Baixa o arquivo se não existir na nuvem
+    if not os.path.exists(arquivo):
+        with st.spinner("Baixando catálogo do servidor (primeira vez)..."):
+            response = requests.get(url_do_pdf)
+            with open(arquivo, "wb") as f:
+                f.write(response.content)
+            
     termo = st.text_input("Buscar código:").strip().upper()
     pag = None
     if termo:
@@ -144,9 +157,9 @@ elif acao == "Catálogo":
             reader = PyPDF2.PdfReader(f)
             for i, p in enumerate(reader.pages):
                 if termo in p.extract_text().upper():
-                    pag = i + 1; break
+                    pag = i + 1
+                    break
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
-
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
     if cod_v in df_estoque['Codigo'].values:
