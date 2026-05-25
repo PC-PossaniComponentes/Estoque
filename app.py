@@ -140,8 +140,8 @@ elif acao == "Catálogo":
     import os
     
     arquivo = "catalogo_oficial.pdf"
-    # SUBSTITUA O LINK ABAIXO PELO SEU LINK DO DRIVE FORMATADO COMO ENSINEI
-    url_do_pdf = "1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS" 
+    # AQUI ESTÁ A CORREÇÃO:
+    url_do_pdf = "https://drive.google.com/uc?export=download&id=1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS"
     
     # Baixa o arquivo se não existir na nuvem
     if not os.path.exists(arquivo):
@@ -159,8 +159,7 @@ elif acao == "Catálogo":
                 if termo in p.extract_text().upper():
                     pag = i + 1
                     break
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
-elif acao == "Venda":
+    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
     if cod_v in df_estoque['Codigo'].values:
         idx = df_estoque[df_estoque['Codigo'] == cod_v].index[0]
