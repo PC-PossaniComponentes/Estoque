@@ -136,20 +136,48 @@ elif acao == "Entrada":
 
 elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
-    termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
-    pag = None
-    if termo:
-        encontrado = False
-        with open(arquivo, "rb") as f:
+    
+    # 1. Função que lê o PDF apenas uma vez e guarda na memória (CACHE)
+    @st.cache_data
+    def processar_texto_pdf(caminho):
+        texto_paginas = {}
+        with open(caminho, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for i, p in enumerate(reader.pages):
                 texto = p.extract_text()
-                if texto and termo in texto.upper():
-                    pag = i + 1
-                    encontrado = True
-                    break
-        if not encontrado: st.warning("Código não encontrado.")
+                if texto:
+                    texto_paginas[i + 1] = texto.upper()
+        return texto_paginas
+
+    # 2. Executa a leitura (só acontece na primeira vez)
+    with st.spinner("Indexando catálogo..."):
+        try:
+            indice_texto = processar_texto_pdf(arquivo)
+        except Exception as e:
+            st.error(f"Erro ao ler PDF: {e}")
+            st.stop()
+
+    # 3. Busca no índice (SUPER RÁPIDO)
+    termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
+    pag = None
+
+    if termo:
+        encontrado = False
+        # Busca no nosso dicionário em memória (instantâneo)
+        for num_pag, texto in indice_texto.items():
+            if termo in texto:
+                pag = num_pag
+                encontrado = True
+                break
+        
+        if not encontrado: 
+            st.warning("Código não encontrado.")
+        else:
+            st.success(f"Código encontrado na página {pag}!")
+
+    # 4. Exibe o PDF (o componente PDF Viewer já lida bem com isso)
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
