@@ -167,10 +167,11 @@ elif acao == "Catálogo":
                 encontrado = True
                 break
         if not encontrado: st.warning("Código não encontrado.")
-        else: st.success(f"Encontrado na página {pag}!")
+        else: st.success(f"Código encontrado na página {pag}!")
 
-    # Chave 'key' adicionada para evitar carregamento do zero
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1, key="viewer_pdf")
+    # A mudança está aqui no key=f"viewer_{termo}"
+    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1, key=f"viewer_{termo}")
+
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
