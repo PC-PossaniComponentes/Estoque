@@ -134,22 +134,48 @@ elif acao == "Entrada":
             salvar_dados(df_estoque, "estoque_gps")
             st.rerun()
 
-elif acao == "Catálogo":
+ elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
-    termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
-    pag = None
-    if termo:
-        encontrado = False
-        with open(arquivo, "rb") as f:
+
+    # 1. Função que lê o PDF e cria um índice de texto (Roda só uma vez)
+    @st.cache_data
+    def criar_indice_pdf(caminho):
+        indice = {}
+        with open(caminho, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for i, p in enumerate(reader.pages):
                 texto = p.extract_text()
-                if texto and termo in texto.upper():
-                    pag = i + 1
-                    encontrado = True
-                    break
-        if not encontrado: st.warning("Código não encontrado.")
+                if texto:
+                    indice[i + 1] = texto.upper()
+        return indice
+
+    # 2. Carrega o índice na memória
+    with st.spinner("Otimizando catálogo..."):
+        indice_paginas = criar_indice_pdf(arquivo)
+
+    # 3. Interface de Busca
+    termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
+    btn_buscar = st.sidebar.button("Buscar no Catálogo")
+    
+    pag = None
+    
+    # 4. Busca rápida no índice (não precisa ler o PDF de novo!)
+    if btn_buscar and termo:
+        encontrado = False
+        for num_pag, texto_pag in indice_paginas.items():
+            if termo in texto_pag:
+                pag = num_pag
+                encontrado = True
+                break
+        
+        if not encontrado:
+            st.warning("Código não encontrado.")
+        else:
+            st.success(f"Código encontrado na página {pag}!")
+
+    # 5. Exibe o PDF
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
