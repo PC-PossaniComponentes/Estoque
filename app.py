@@ -137,28 +137,16 @@ elif acao == "Entrada":
             salvar_dados(df_estoque, "estoque_gps")
             st.rerun()
 
-elif acao == "Catálogo":
-    @st.cache_data
-    def carregar_pdf_com_cache(url):
-        response = requests.get(url)
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        temp_file.write(response.content)
-        temp_file.close()
-        return temp_file.name
-
-    url_do_pdf = "https://drive.google.com/uc?export=download&id=1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS"
-    with st.spinner("Preparando catálogo..."):
-        try:
-            caminho_pdf = carregar_pdf_com_cache(url_do_pdf)
-        except Exception as e:
-            st.error(f"Erro ao baixar PDF: {e}")
-            st.stop()
-
+                elif acao == "Catálogo":
+    arquivo = "catalogo_oficial.pdf"
+    
+    # A busca agora é direta no arquivo local
     termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
     pag = None
+
     if termo:
         encontrado = False
-        with open(caminho_pdf, "rb") as f:
+        with open(arquivo, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             for i, p in enumerate(reader.pages):
                 texto = p.extract_text()
@@ -166,8 +154,11 @@ elif acao == "Catálogo":
                     pag = i + 1
                     encontrado = True
                     break
-        if not encontrado: st.warning("Código não encontrado.")
-    pdf_viewer(caminho_pdf, scroll_to_page=pag if pag else 1)
+        if not encontrado: 
+            st.warning("Código não encontrado.")
+            
+    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+    
 
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
