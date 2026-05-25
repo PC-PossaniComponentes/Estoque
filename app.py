@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+from streamlit_pdf_viewer import pdf_viewer
+import PyPDF2  # <--- NOVA LINHA
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
@@ -9,7 +11,7 @@ st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon
 if "carrinho" not in st.session_state:
     st.session_state["carrinho"] = []
 
-if "carrinho_pedidos" not in st.session_state: # <--- ADICIONE ESTA LINHA
+if "carrinho_pedidos" not in st.session_state:
     st.session_state["carrinho_pedidos"] = []
 
 # --- ALARME DE CREDENCIAIS (NOVO) ---
@@ -29,21 +31,17 @@ SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- TRAVA DE SEGURANÇA FINAL ---
-# Bloqueia e avisa se o robô virou anônimo por causa de erro no secrets.toml
 if "Public" in str(type(conn.client)):
     st.error("🚨 O Streamlit achou um erro invisível no seu secrets.toml e tentou entrar como Anônimo.")
     st.warning("👉 **Como resolver:** \n1. Verifique se você trocou os traços `-` por `=` como falamos. \n2. Verifique se a sua `private_key` está exata, não pode faltar nenhuma aspa ou `\\n`. \n3. **CRÍTICO:** Pare o robô no terminal (Ctrl + C) e rode `streamlit run app.py` novamente!")
     st.stop()
 
 def carregar_dados(aba):
-    # O bot VIP agora pode usar a rota expressa sem tomar Erro 404!
     return conn.read(worksheet=aba, ttl=600)
 
 def salvar_dados(df, aba):
     conn.update(worksheet=aba, data=df)
     st.cache_data.clear()
-
-# ... DAQUI PARA BAIXO O SEU CÓDIGO (Lógica de acesso, menus, etc) CONTINUA EXATAMENTE IGUAL ...
 
 # --- LÓGICA DE ACESSO ---
 if "autenticado" not in st.session_state:
@@ -78,19 +76,19 @@ try:
             df_estoque['Alerta Minimo'] = 5
         df_estoque['Alerta Minimo'] = pd.to_numeric(df_estoque['Alerta Minimo'], errors='coerce').fillna(5).astype(int)
         
-        # 👇 TRECHO NOVO: Garante que a coluna Anotações exista 👇
+        # Garante que a coluna Anotações exista
         if 'Anotacoes' not in df_estoque.columns:
             df_estoque['Anotacoes'] = ""
         df_estoque['Anotacoes'] = df_estoque['Anotacoes'].fillna("").astype(str)
         
     else:
-        # Cria a estrutura caso a aba esteja vazia (AGORA COM ANOTAÇÕES)
         df_estoque = pd.DataFrame(columns=['Codigo', 'Descricao', 'Quantidade', 'Preco', 'Alerta Minimo', 'Anotacoes'])
 
 except Exception as e:
     st.error("🚨 ERRO DETALHADO AO CARREGAR ESTOQUE:")
     st.exception(e)
     st.stop()
+
 # --- INTERFACE PRINCIPAL ---
 st.title("📦 Sistema de Estoque GPS")
 st.sidebar.header("🛠️ Menu")
@@ -131,11 +129,9 @@ if acao == "Estoque":
         df_ver['Status'] = df_ver.apply(lambda r: "⚠️ Baixo" if r['Quantidade'] <= r['Alerta Minimo'] else "✅ OK", axis=1)
         df_ver['Valor Total Item'] = df_ver['Valor Total'].apply(lambda x: f"R$ {x:.2f}")
         
-       # --- A TABELA EDITÁVEL COM EXCLUSÃO ---
         st.markdown("### ✏️ Edição e Exclusão")
         st.caption("Altere os dados diretamente na tabela ou selecione linhas para excluir.")
 
-        # Adicionamos uma coluna de seleção para facilitar a exclusão
         df_editado = st.data_editor(
             df_ver[['Status', 'Codigo', 'Descricao', 'Quantidade', 'Preco', 'Alerta Minimo', 'Anotacoes', 'Valor Total Item']], 
             use_container_width=True, 
@@ -148,10 +144,7 @@ if acao == "Estoque":
             }
         )
 
-        # Colunas para organizar os botões
         c1, c2 = st.columns([1, 4])
-        
-        # Botão de Salvar
         if c1.button("💾 Salvar Alterações", type="primary"):
             df_estoque.set_index('Codigo', inplace=True)
             df_editado.set_index('Codigo', inplace=True)
@@ -161,7 +154,6 @@ if acao == "Estoque":
             st.success("✅ Alterações salvas!")
             st.rerun()
 
-        # Botão de Excluir (lógica segura)
         st.markdown("---")
         with st.expander("🗑️ Excluir Produto"):
             cod_excluir = st.selectbox("Selecione o código do produto para excluir:", options=[""] + df_ver['Codigo'].tolist())
@@ -171,84 +163,7 @@ if acao == "Estoque":
                     salvar_dados(df_estoque, "estoque_gps")
                     st.warning(f"Produto {cod_excluir} removido!")
                     st.rerun()
-# --- ABA: CATÁLOGO ---
-elif acao == "Catálogo":
-    st.subheader("🖼️ Catálogo de Peças")
-    
-    # Carrega dados do catálogo
-    try:
-        df_cat = carregar_dados("catalogo_gps")
-        df_cat['Codigo'] = df_cat['Codigo'].astype(str)
-        df_cat['Descricao'] = df_cat['Descricao'].fillna("").astype(str)
-    except:
-        df_cat = pd.DataFrame(columns=['Codigo', 'Descricao', 'Preco', 'Anotacoes', 'Link_Foto'])
 
-    # Busca
-    termo_cat = st.text_input("🔍 Buscar peça no catálogo").lower()
-    if termo_cat:
-        mask = df_cat['Codigo'].str.lower().str.contains(termo_cat) | \
-               df_cat['Descricao'].str.lower().str.contains(termo_cat)
-        df_cat = df_cat[mask]
-
-    # --- INÍCIO DA PAGINAÇÃO ---
-    itens_por_pagina = 20
-    total_paginas = max(1, int(len(df_cat) / itens_por_pagina) + 1)
-    pagina = st.number_input("Página", min_value=1, max_value=total_paginas, value=1)
-    
-    inicio = (pagina - 1) * itens_por_pagina
-    fim = inicio + itens_por_pagina
-    df_paginado = df_cat.iloc[inicio:fim]
-    # --- FIM DA PAGINAÇÃO ---
-
-    # Adicionar nova peça ao catálogo
-    with st.expander("➕ Adicionar/Editar Peça no Catálogo"):
-        c_cod, c_desc = st.columns(2)
-        novo_cod = c_cod.text_input("Código da Peça").strip()
-        nova_desc = c_desc.text_input("Descrição")
-        
-        c_prec, c_link = st.columns(2)
-        novo_preco = c_prec.number_input("Preço", min_value=0.0)
-        novo_link = c_link.text_input("Link da Foto (URL)")
-        nova_nota = st.text_area("Anotações")
-        
-        if st.button("Salvar no Catálogo"):
-            nova_linha = pd.DataFrame({'Codigo': [novo_cod], 'Descricao': [nova_desc], 'Preco': [novo_preco], 
-                                     'Anotacoes': [nova_nota], 'Link_Foto': [novo_link]})
-            if novo_cod in df_cat['Codigo'].values:
-                idx = df_cat[df_cat['Codigo'] == novo_cod].index[0]
-                df_cat.loc[idx] = nova_linha.iloc[0]
-            else:
-                df_cat = pd.concat([df_cat, nova_linha], ignore_index=True)
-            salvar_dados(df_cat, "catalogo_gps")
-            st.success("Peça salva!")
-            st.rerun()
-
-    # Exibição em Grid (usando o df_paginado)
-    if df_paginado.empty:
-        st.info("Catálogo vazio ou página sem itens.")
-    else:
-        cols = st.columns(3)
-        # Usamos enumerate para garantir que o i seja sempre 0, 1, 2...
-        for i, (idx, row) in enumerate(df_paginado.iterrows()):
-            with cols[i % 3]:
-                link = row.get('Link_Foto', '')
-                if link and str(link).startswith('http'):
-                    st.image(link, use_container_width=True)
-                else:
-                    st.warning("Sem imagem")
-                
-                st.write(f"**{row['Descricao']}**")
-                st.caption(f"Código: {row['Codigo']}")
-                st.write(f"Preço: R$ {row['Preco']:.2f}")
-                
-                with st.expander("📝 Anotações"):
-                    st.write(row['Anotacoes'])
-                
-                if st.button(f"🗑️ Excluir {row['Codigo']}", key=f"del_{row['Codigo']}"):
-                    df_cat = df_cat[df_cat['Codigo'] != row['Codigo']]
-                    salvar_dados(df_cat, "catalogo_gps")
-                    st.rerun()
-                st.markdown("---")
 # --- ABA 2: ENTRADA ---
 elif acao == "Entrada":
     st.subheader("📥 Dar Entrada / Ajustar Peças")
@@ -283,14 +198,71 @@ elif acao == "Entrada":
                 st.success("Nova peça cadastrada com sucesso!")
                 
             salvar_dados(df_estoque, "estoque_gps")
-            # st.rerun() omitido aqui intencionalmente para que o usuário consiga ler a mensagem de sucesso.
+# --- ABA: CATÁLOGO ---
+elif acao == "Catálogo":
+    st.subheader("🖼️ Catálogo de Peças Oficial")
+    
+    arquivo_pdf = "catalogo_oficial.pdf" 
+    pagina_foco = None
+    modo_foco = False # Padrão: mostrar todo o PDF
+    
+    # --- SISTEMA DE BUSCA INTELIGENTE ---
+    st.markdown("### 🔍 Localizador de Códigos")
+    termo_busca = st.text_input("Digite o código que deseja encontrar (Ex: 7950):").strip().upper()
+    
+    if termo_busca:
+        try:
+            with open(arquivo_pdf, "rb") as f:
+                leitor = PyPDF2.PdfReader(f)
+                paginas_encontradas = []
+                
+                for num_pagina in range(len(leitor.pages)):
+                    texto_pagina = leitor.pages[num_pagina].extract_text()
+                    if texto_pagina and termo_busca in texto_pagina.upper():
+                        paginas_encontradas.append(num_pagina + 1)
+                
+                if paginas_encontradas:
+                    pagina_foco = paginas_encontradas[0]
+                    st.success(f"✅ Encontrado! O catálogo abaixo rolou automaticamente para a **Página {pagina_foco}**.")
+                    
+                    # Checkbox para o "Modo Foco"
+                    modo_foco = st.checkbox("🎯 Modo Foco: Ocultar o resto do catálogo e mostrar APENAS esta página")
+                else:
+                    st.error(f"❌ O código **{termo_busca}** não foi encontrado.")
+                    
+        except Exception as e:
+            st.error(f"Erro ao buscar no PDF: {e}")
+            
+    st.markdown("---")
 
-# --- ABA 3: VENDA ---
+   # --- EXIBIÇÃO DO PDF E BOTÃO DE DOWNLOAD ---
+    try:
+        with open(arquivo_pdf, "rb") as f:
+            st.download_button(
+                label="📥 Baixar Catálogo em PDF",
+                data=f,
+                file_name="Catalogo_GPS.pdf",
+                mime="application/pdf",
+                type="primary"
+            )
+        
+        # --- NAVEGAÇÃO OTIMIZADA ---
+        # Se houver página foco, definimos o scroll. Caso contrário, exibição normal.
+        if pagina_foco and modo_foco:
+            pdf_viewer(arquivo_pdf, width=800, height=800, pages_to_render=[pagina_foco], key=f"foco_{pagina_foco}_{termo_busca}")
+        elif pagina_foco:
+            pdf_viewer(arquivo_pdf, width=800, height=800, scroll_to_page=pagina_foco, key=f"scroll_{pagina_foco}_{termo_busca}")
+        else:
+            pdf_viewer(arquivo_pdf, width=800, height=800, key="normal_view")
+            
+    except FileNotFoundError:
+        st.error(f"🚨 Arquivo '{arquivo_pdf}' não encontrado!")
+        st.warning("Coloque o arquivo 'catalogo_oficial.pdf' na pasta do projeto.")
+     
 # --- ABA 3: VENDA ---
 elif acao == "Venda":
     st.subheader("💸 Lançar Venda Multi-itens")
     
-    # 1. EXPANDER PARA ADICIONAR PEÇAS
     with st.expander("➕ Adicionar Peças ao Carrinho", expanded=True):
         cod_v = st.text_input("Código da Peça:").strip()
         
@@ -317,7 +289,6 @@ elif acao == "Venda":
                 })
                 st.rerun()
 
-    # 2. VISUALIZAÇÃO DO CARRINHO
     if st.session_state["carrinho"]:
         st.write("### 🛒 Itens no Carrinho")
         df_carrinho = pd.DataFrame(st.session_state["carrinho"])
@@ -335,8 +306,8 @@ elif acao == "Venda":
             st.session_state["carrinho"] = []
             st.rerun()
             
-        # 3. FINALIZAÇÃO
-        cli = st.text_input("Nome do Cliente:", value="Consumidor Final")
+        # FINALIZAÇÃO (Corrigida: lógica duplicada removida)
+        cli = st.text_input("Nome do Cliente:", value="Consumidor Final").strip()
         if st.button("✅ Finalizar Venda", type="primary"):
             agora = datetime.now()
             id_venda = agora.strftime('%Y%m%d%H%M%S')
@@ -348,8 +319,13 @@ elif acao == "Venda":
                 df_estoque.at[idx, 'Quantidade'] -= item['Qtd']
             salvar_dados(df_estoque, "estoque_gps")
             
-            # Salva histórico
-            df_novas = pd.DataFrame(itens).rename(columns={'Qtd': 'Quantidade', 'Preco': 'Valor Unitario', 'Desc %': 'Desconto %', 'Desc R$': 'Desconto R$'})
+            # Prepara dados do histórico
+            df_novas = pd.DataFrame(itens).rename(columns={
+                'Qtd': 'Quantidade', 
+                'Preco': 'Valor Unitario', 
+                'Desc %': 'Desconto %', 
+                'Desc R$': 'Desconto R$'
+            })
             df_novas['ID_Venda'] = id_venda
             df_novas['Data'] = agora.strftime('%d/%m/%Y')
             df_novas['Horario'] = agora.strftime('%H:%M:%S')
@@ -364,76 +340,9 @@ elif acao == "Venda":
             salvar_dados(pd.concat([df_hist, df_novas], ignore_index=True), "historico_vendas")
             
             st.session_state["carrinho"] = []
-            st.success("✅ Venda concluída!")
-            st.rerun()
-            
-            salvar_dados(df_estoque, "estoque_gps")
-            
-            # 2. Prepara histórico (usa os itens_para_vender)
-            novas_vendas = pd.DataFrame(itens_para_vender)
-            
-            # Ajuste de nomes para bater com o histórico antigo
-            novas_vendas = novas_vendas.rename(columns={'Qtd': 'Quantidade', 'Preco': 'Valor Unitario'})
-            
-            novas_vendas['ID_Venda'] = id_venda
-            novas_vendas['Data'] = agora.strftime('%d/%m/%Y')
-            novas_vendas['Horario'] = agora.strftime('%H:%M:%S')
-            novas_vendas['Cliente'] = cli
-            novas_vendas['Valor Total'] = novas_vendas['Quantidade'] * novas_vendas['Valor Unitario']
-            novas_vendas['Desconto %'] = 0.0
-            novas_vendas['Desconto R$'] = 0.0
-            novas_vendas['Anotacoes'] = ""
-            
-            # Carrega e concatena
-            try:
-                df_hist = carregar_dados("historico_vendas")
-            except:
-                df_hist = pd.DataFrame()
-            
-            # Adiciona apenas as novas linhas
-            df_hist = pd.concat([df_hist, novas_vendas], ignore_index=True)
-            salvar_dados(df_hist, "historico_vendas")
-            
-            # 3. LIMPA O CARRINHO E RECARREGA
-            st.session_state["carrinho"] = []
-            st.success(f"✅ Venda {id_venda} concluída e salva!")
-            st.rerun()
-            
-            # GARANTE QUE AS COLUNAS ESTEJAM NA MESMA ORDEM E FORMA
-            df_hist = pd.concat([df_hist, novas_vendas], ignore_index=True)
-            salvar_dados(df_hist, "historico_vendas")
-            
-            df_hist = pd.concat([df_hist, novas_vendas], ignore_index=True)
-            salvar_dados(df_hist, "historico_vendas")
-            
-            st.session_state["carrinho"] = []
-            st.success(f"✅ Venda {id_venda} concluída!")
-            st.rerun()
-            
-            salvar_dados(df_estoque, "estoque_gps")
-            
-            # 2. Salva no histórico de vendas
-            try:
-                df_hist = carregar_dados("historico_vendas")
-            except:
-                df_hist = pd.DataFrame()
-            
-            novas_vendas = pd.DataFrame(st.session_state["carrinho"])
-            novas_vendas['Data'] = agora.strftime('%d/%m/%Y')
-            novas_vendas['Horario'] = agora.strftime('%H:%M:%S')
-            novas_vendas['Cliente'] = cli
-            novas_vendas['Valor Total'] = novas_vendas['Qtd'] * novas_vendas['Preco']
-            
-            df_hist = pd.concat([df_hist, novas_vendas], ignore_index=True)
-            salvar_dados(df_hist, "historico_vendas")
-            
-            st.session_state["carrinho"] = [] # Limpa carrinho
-            st.success("✅ Venda concluída e salva!")
+            st.success("✅ Venda concluída e salva no histórico!")
             st.rerun()
 
-# As demais abas (Histórico, Orçamento, Trocas) seguem a mesma lógica otimizada...
-# Adicionei tratamento similar para evitar quebras.
-# (Por brevidade, abas 4 a 7 mantêm a estrutura original, mas aplique `.strip()` nos inputs de texto e chame st.dataframe com tratamento seguro).
 # --- ABA 4: HISTÓRICO DE VENDAS ---
 elif acao == "Histórico de Vendas":
     st.subheader("📊 Relatório de Vendas")
@@ -441,24 +350,19 @@ elif acao == "Histórico de Vendas":
         df_hist = carregar_dados("historico_vendas")
         
         if not df_hist.empty:
-            # Proteção para dados antigos
             if 'ID_Venda' not in df_hist.columns:
                 df_hist['ID_Venda'] = "ANTIGO"
             
-            # --- SEÇÃO DE EXCLUSÃO ---
             with st.expander("🗑️ Excluir Venda"):
-                # Lista apenas IDs únicos
                 ids_unicos = df_hist['ID_Venda'].unique().tolist()
                 id_para_deletar = st.selectbox("Selecione o ID da venda para excluir:", ids_unicos)
                 
                 if st.button("🚨 Confirmar Exclusão da Venda"):
-                    # Filtra removendo todas as linhas que contêm aquele ID
                     df_hist = df_hist[df_hist['ID_Venda'] != id_para_deletar]
                     salvar_dados(df_hist, "historico_vendas")
                     st.warning(f"Venda {id_para_deletar} excluída com sucesso!")
                     st.rerun()
 
-            # --- EXIBIÇÃO ---
             resumo = df_hist.groupby('ID_Venda').agg({
                 'Data': 'first',
                 'Cliente': 'first',
@@ -475,11 +379,11 @@ elif acao == "Histórico de Vendas":
             
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
+
 # --- ABA 5: ORÇAMENTO ---
 elif acao == "Orçamento":
     st.subheader("🧮 Simulador de Orçamento")
     
-    # 1. ADICIONAR AO CARRINHO DE ORÇAMENTO
     with st.expander("➕ Adicionar Peças ao Orçamento", expanded=True):
         cod_o = st.text_input("Código da Peça (Orçamento):").strip()
         
@@ -505,18 +409,15 @@ elif acao == "Orçamento":
                 })
                 st.rerun()
 
-    # 2. VISUALIZAÇÃO DO ORÇAMENTO
     if st.session_state["carrinho"]:
         st.write("### 📋 Itens do Orçamento")
         df_orc = pd.DataFrame(st.session_state["carrinho"])
         
-        # Cálculos de exibição
         df_orc['Subtotal Bruto'] = df_orc['Qtd'] * df_orc['Preco']
         df_orc['Total Líquido'] = df_orc['Subtotal Bruto'] - df_orc['Desc R$']
         
         st.table(df_orc[['Codigo', 'Descricao', 'Qtd', 'Preco', 'Subtotal Bruto', 'Desc %', 'Desc R$', 'Total Líquido']])
         
-        # Totais Finais
         total_bruto = df_orc['Subtotal Bruto'].sum()
         total_descontos = df_orc['Desc R$'].sum()
         total_final = df_orc['Total Líquido'].sum()
@@ -550,7 +451,7 @@ elif acao == "Trocas":
                 qtd_chegou = c1.number_input("Qtd de peças DEFEITUOSAS que CHEGARAM", min_value=0, value=1)
                 qtd_saiu = c2.number_input("Qtd de peças NOVAS que SAÍRAM", min_value=0, max_value=max(1, qtd_disponivel), value=1)
                 
-                cli_t = st.text_input("Nome do Cliente / Fabricante:")
+                cli_t = st.text_input("Nome do Cliente / Fabricante:").strip()
                 anotacoes_t = st.text_area("Motivo do defeito ou observações:")
                 
                 diferenca = qtd_saiu - qtd_chegou
@@ -618,11 +519,11 @@ elif acao == "Histórico de Trocas":
             st.info("Nenhum registro de troca foi localizado.")
     except Exception:
         st.warning("⚠️ A aba 'historico_trocas' ainda não foi criada no Google Sheets ou está vazia.")
-# --- ABA 7: PEDIDOS ---
+
+# --- ABA 8: PEDIDOS ---
 elif acao == "Pedidos":
     st.subheader("📝 Gestão de Pedidos (Multi-itens)")
 
-    # 1. EXPANDER PARA ADICIONAR PEÇAS AO PEDIDO
     with st.expander("➕ Adicionar Peças à Encomenda", expanded=True):
         cod_p = st.text_input("Código da Peça para Pedido:").strip()
         
@@ -641,7 +542,6 @@ elif acao == "Pedidos":
                 })
                 st.rerun()
 
-    # 2. VISUALIZAÇÃO E FINALIZAÇÃO DO CARRINHO
     if st.session_state["carrinho_pedidos"]:
         st.write("### 🛒 Itens deste Pedido")
         st.table(pd.DataFrame(st.session_state["carrinho_pedidos"]))
@@ -652,7 +552,7 @@ elif acao == "Pedidos":
             
         st.markdown("---")
         c_cli, c_data = st.columns(2)
-        cli_p = c_cli.text_input("Nome do Cliente (Pedido):")
+        cli_p = c_cli.text_input("Nome do Cliente (Pedido):").strip()
         data_entrega = c_data.date_input("Data de Entrega Prometida:")
         
         if st.button("✅ Confirmar Pedido Completo", type="primary"):
@@ -676,7 +576,6 @@ elif acao == "Pedidos":
             st.success(f"✅ Pedido {id_pedido} registrado!")
             st.rerun()
 
-    # 3. LISTAGEM DE PEDIDOS PENDENTES
     st.markdown("---")
     st.write("### 📋 Pedidos na Fila de Espera")
     try:
