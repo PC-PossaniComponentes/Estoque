@@ -2,5 +2,3 @@ streamlit
 pandas
 gspread
 google-auth
-streamlit-pdf-viewer
-PyPDF2
