@@ -3,8 +3,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-from streamlit_pdf_viewer import pdf_viewer
-import PyPDF2
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
@@ -47,7 +45,7 @@ if "autenticado" not in st.session_state: st.session_state["autenticado"] = Fals
 
 SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
-def processar_venda(itens, cliente, df_estoque, tipo="Venda"):
+def processar_venda(itens, cliente, df_estoque, tipo="Venda", envio="Retirada"):
     for item in itens:
         idx = df_estoque[df_estoque['Codigo'] == item['Codigo']].index[0]
         df_estoque.at[idx, 'Quantidade'] -= item['Qtd']
@@ -59,6 +57,7 @@ def processar_venda(itens, cliente, df_estoque, tipo="Venda"):
     df_novas['Data'] = agora.strftime('%d/%m/%Y')
     df_novas['Horario'] = agora.strftime('%H:%M:%S')
     df_novas['Cliente'] = cliente
+    df_novas['Envio'] = envio
     df_novas['Valor Total'] = df_novas['Quantidade'] * df_novas['Valor Unitario']
     
     try:
@@ -103,7 +102,7 @@ except:
 
 # --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
-acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
+acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Rotas", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 if acao == "Estoque":
     st.subheader("📋 Estoque")
@@ -137,13 +136,10 @@ elif acao == "Entrada":
 elif acao == "Catálogo":
     st.subheader("📖 Catálogo Oficial de Peças")
     st.write("Para uma busca mais rápida, o catálogo agora abre diretamente no seu navegador.")
-    
-    # Link direto para o seu PDF no Google Drive (versão de visualização)
     link_drive = "https://drive.google.com/file/d/1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS/view"
-    
     st.link_button("🔗 Clicar aqui para abrir o Catálogo", link_drive)
-    
     st.info("💡 **Dica de Ouro:** Após abrir o catálogo na nova aba, pressione **Ctrl + F** (no computador) ou use a função **Buscar na página** (no celular) para achar o código da peça instantaneamente!")
+
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
     if cod_v in df_estoque['Codigo'].values:
@@ -155,8 +151,9 @@ elif acao == "Venda":
     if st.session_state["carrinho"]:
         st.table(pd.DataFrame(st.session_state["carrinho"]))
         cli = st.text_input("Cliente:").strip()
+        envio_v = st.radio("Forma de Envio:", ["Retirada", "Entrega"], horizontal=True, key="envio_venda")
         if st.button("✅ Finalizar Venda"):
-            processar_venda(st.session_state["carrinho"], cli, df_estoque, tipo="Venda")
+            processar_venda(st.session_state["carrinho"], cli, df_estoque, tipo="Venda", envio=envio_v)
 
 elif acao == "Orçamento":
     cod_o = st.text_input("Código:").strip()
@@ -169,8 +166,68 @@ elif acao == "Orçamento":
     if st.session_state["carrinho"]:
         st.table(pd.DataFrame(st.session_state["carrinho"]))
         cli_o = st.text_input("Cliente:").strip()
+        envio_o = st.radio("Forma de Envio:", ["Retirada", "Entrega"], horizontal=True, key="envio_orc")
         if st.button("🚀 Converter em Venda"):
-            processar_venda(st.session_state["carrinho"], cli_o, df_estoque, tipo="Conversão")
+            processar_venda(st.session_state["carrinho"], cli_o, df_estoque, tipo="Conversão", envio=envio_o)
+
+elif acao == "Rotas":
+    st.subheader("🚚 Planejamento de Rotas de Entrega")
+    
+    try:
+        df_clientes = carregar_dados("clientes")
+    except:
+        df_clientes = pd.DataFrame(columns=['Cliente', 'Endereco'])
+        st.warning("⚠️ Para carregar os endereços automaticamente, certifique-se de ter uma aba chamada 'clientes' no seu Google Sheets com as colunas 'Cliente' e 'Endereco' preenchidas.")
+
+    try:
+        df_hist = carregar_dados("historico_vendas")
+        
+        if 'Envio' in df_hist.columns:
+            # Filtra estritamente apenas o que precisa de entrega
+            df_entregas = df_hist[df_hist['Envio'] == 'Entrega']
+        else:
+            df_entregas = pd.DataFrame()
+            st.info("Nenhuma entrega registrada no novo formato ainda.")
+        
+        if not df_entregas.empty:
+            clientes_pendentes = df_entregas['Cliente'].unique()
+            st.write("### Selecione os clientes que entrarão na rota de hoje:")
+            selecionados = st.multiselect("Clientes com entrega pendente:", clientes_pendentes)
+            
+            if selecionados:
+                st.write("### 📍 Itinerário da Rota Organizada")
+                enderecos_rota = []
+                
+                for idx, cli_nome in enumerate(selecionados, 1):
+                    if not df_clientes.empty and cli_nome in df_clientes['Cliente'].values:
+                        endereco = df_clientes[df_clientes['Cliente'] == cli_nome]['Endereco'].values[0]
+                    else:
+                        endereco = "Endereço privado não localizado na aba 'clientes'"
+                    
+                    st.write(f"**{idx}º Parada:** {cli_nome} — *{endereco}*")
+                    if endereco and "não localizado" not in endereco:
+                        enderecos_rota.append(endereco)
+                
+                if enderecos_rota:
+                    base_url = "https://www.google.com/maps/dir/"
+                    pontos_url = "/".join([end.replace(" ", "+") for end in enderecos_rota])
+                    st.link_button("🗺️ Abrir Rota Direto no Google Maps", base_url + pontos_url)
+        else:
+            st.success("🎉 Todas as vendas atuais foram marcadas como Retirada ou não há entregas pendentes!")
+    except Exception as e:
+        st.error(f"Erro ao processar roteamento: {e}")
+
+elif acao == "Trocas":
+    st.subheader("🔄 Trocas")
+    st.info("Módulo de trocas em desenvolvimento.")
+
+elif acao == "Pedidos":
+    st.subheader("📦 Pedidos")
+    st.info("Módulo de pedidos em desenvolvimento.")
+
+elif acao == "Histórico de Trocas":
+    st.subheader("📜 Histórico de Trocas")
+    st.info("Histórico de trocas em desenvolvimento.")
 
 elif acao == "Dashboard":
     st.subheader("📊 Dashboard")
