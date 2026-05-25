@@ -137,45 +137,48 @@ elif acao == "Entrada":
 elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
 
-    # Esta função roda apenas UMA VEZ. Depois, ela pega o resultado da memória.
+    # 1. Esta função processa o PDF uma ÚNICA vez e guarda na memória (cache)
     @st.cache_data
-    def extrair_texto_pdf(caminho):
+    def processar_texto_pdf(caminho):
         texto_paginas = {}
         with open(caminho, "rb") as f:
             reader = PyPDF2.PdfReader(f)
+            # Lê todas as páginas uma única vez e cria um índice {num_pagina: "texto da pagina"}
             for i, p in enumerate(reader.pages):
                 texto = p.extract_text()
                 if texto:
-                    texto_paginas[i + 1] = texto.upper()
+                    texto_paginas[i + 1] = texto.upper() # Converte tudo para maiúsculas para facilitar a busca
         return texto_paginas
 
-    # Carrega o índice na memória (Rápido!)
-    with st.spinner("Carregando catálogo..."):
+    # 2. Carrega o índice (Se já estiver em cache, é instantâneo)
+    with st.spinner("Otimizando catálogo..."):
         try:
-            indice = extrair_texto_pdf(arquivo)
+            indice_texto = processar_texto_pdf(arquivo)
         except Exception as e:
-            st.error("Erro ao carregar PDF. Verifique se o arquivo está na pasta raiz.")
+            st.error(f"Erro ao carregar PDF: {e}")
             st.stop()
 
-    # Busca apenas no índice (Instantâneo como um Ctrl+F)
-    termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
+    # 3. Busca no índice (Rápido, sem abrir o arquivo novamente)
+    termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
     pag = None
 
     if termo:
         encontrado = False
-        for num_pag, texto in indice.items():
+        # Busca no dicionário em memória (milissegundos)
+        for num_pag, texto in indice_texto.items():
             if termo in texto:
                 pag = num_pag
                 encontrado = True
                 break
         
-        if not encontrado:
+        if not encontrado: 
             st.warning("Código não encontrado.")
         else:
-            st.success(f"Encontrado na página {pag}!")
+            st.success(f"Código encontrado na página {pag}!")
 
-    # Exibe o PDF na página correta
+    # 4. Exibe o PDF
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+
 
 
 
