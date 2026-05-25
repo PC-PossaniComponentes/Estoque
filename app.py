@@ -37,6 +37,7 @@ def salvar_dados(df, aba):
     spreadsheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
     worksheet = spreadsheet.worksheet(aba)
     worksheet.clear()
+    # Adiciona colunas e dados
     data = [df.columns.values.tolist()] + df.values.tolist()
     worksheet.update(data)
     st.cache_data.clear()
@@ -103,6 +104,19 @@ except:
 
 # --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
+# Código para fixar o input no topo
+st.markdown("""
+    <style>
+    div[data-testid="stVerticalBlock"] div[data-testid="stTextInput"] {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        background-color: white; /* Garante que não fique transparente */
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 if acao == "Estoque":
@@ -135,44 +149,15 @@ elif acao == "Entrada":
             st.rerun()
 
 elif acao == "Catálogo":
-    arquivo = "catalogo_oficial.pdf"
-
-    # Função indexadora em cache
-    @st.cache_data
-    def processar_texto_pdf(caminho):
-        texto_paginas = {}
-        with open(caminho, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            for i, p in enumerate(reader.pages):
-                texto = p.extract_text()
-                if texto:
-                    texto_paginas[i + 1] = texto.upper()
-        return texto_paginas
-
-    with st.spinner("Otimizando catálogo..."):
-        try:
-            indice_texto = processar_texto_pdf(arquivo)
-        except Exception as e:
-            st.error(f"Erro ao carregar PDF: {e}")
-            st.stop()
-
-    termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
-    pag = None
-
-    if termo:
-        encontrado = False
-        for num_pag, texto in indice_texto.items():
-            if termo in texto:
-                pag = num_pag
-                encontrado = True
-                break
-        if not encontrado: st.warning("Código não encontrado.")
-        else: st.success(f"Código encontrado na página {pag}!")
-
-    # A mudança está aqui no key=f"viewer_{termo}"
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1, key=f"viewer_{termo}")
-
-
+    st.subheader("📖 Catálogo Oficial de Peças")
+    st.write("Para uma busca mais rápida, o catálogo agora abre diretamente no seu navegador.")
+    
+    # Link direto para o seu PDF no Google Drive (versão de visualização)
+    link_drive = "https://drive.google.com/file/d/1yf2NTjeVkVESKjPt_seKPc0Vga8n9ALS/view"
+    
+    st.link_button("🔗 Clicar aqui para abrir o Catálogo", link_drive)
+    
+    st.info("💡 **Dica de Ouro:** Após abrir o catálogo na nova aba, pressione **Ctrl + F** (no computador) ou use a função **Buscar na página** (no celular) para achar o código da peça instantaneamente!")
 elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
     if cod_v in df_estoque['Codigo'].values:
