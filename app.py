@@ -159,7 +159,9 @@ elif acao == "Catálogo":
                 if termo in p.extract_text().upper():
                     pag = i + 1
                     break
-    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)elif acao == "Venda":
+    pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+
+elif acao == "Venda":
     cod_v = st.text_input("Código:").strip()
     if cod_v in df_estoque['Codigo'].values:
         idx = df_estoque[df_estoque['Codigo'] == cod_v].index[0]
