@@ -1,35 +1,52 @@
 import streamlit as st
 import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 from streamlit_pdf_viewer import pdf_viewer
 import PyPDF2
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
-# --- INICIALIZAÇÃO ---
-if "carrinho" not in st.session_state:
-    st.session_state["carrinho"] = []
-if "carrinho_pedidos" not in st.session_state:
-    st.session_state["carrinho_pedidos"] = []
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
+# --- CONEXÃO GSPREAD ---
+def get_gsheets_client():
+    creds_dict = {
+        "type": st.secrets["connections"]["gsheets"]["type"],
+        "project_id": st.secrets["connections"]["gsheets"]["project_id"],
+        "private_key_id": st.secrets["connections"]["gsheets"]["private_key_id"],
+        "private_key": st.secrets["connections"]["gsheets"]["private_key"].replace('\\n', '\n'),
+        "client_email": st.secrets["connections"]["gsheets"]["client_email"],
+        "client_id": st.secrets["connections"]["gsheets"]["client_id"],
+        "auth_uri": st.secrets["connections"]["gsheets"]["auth_uri"],
+        "token_uri": st.secrets["connections"]["gsheets"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["connections"]["gsheets"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["connections"]["gsheets"]["client_x509_cert_url"],
+    }
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
 
-# --- CONFIGURAÇÕES SEGURAS ---
-if "connections" not in st.secrets or "gsheets" not in st.secrets["connections"]:
-    st.error("🚨 Erro: Arquivo secrets.toml mal configurado.")
-    st.stop()
-
-conn = st.connection("gsheets", type=GSheetsConnection)
-SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
-
-# --- FUNÇÕES ---
 def carregar_dados(aba):
-    return conn.read(worksheet=aba, ttl=600)
+    client = get_gsheets_client()
+    spreadsheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+    worksheet = spreadsheet.worksheet(aba)
+    return pd.DataFrame(worksheet.get_all_records())
 
 def salvar_dados(df, aba):
-    conn.update(worksheet=aba, data=df)
+    client = get_gsheets_client()
+    spreadsheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+    worksheet = spreadsheet.worksheet(aba)
+    worksheet.clear()
+    # Adiciona colunas e dados
+    data = [df.columns.values.tolist()] + df.values.tolist()
+    worksheet.update(data)
     st.cache_data.clear()
+
+# --- INICIALIZAÇÃO ---
+if "carrinho" not in st.session_state: st.session_state["carrinho"] = []
+if "autenticado" not in st.session_state: st.session_state["autenticado"] = False
+
+SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
 def processar_venda(itens, cliente, df_estoque, tipo="Venda"):
     for item in itens:
@@ -74,26 +91,21 @@ if not st.session_state["autenticado"]:
                 st.error("Senha incorreta!")
     st.stop()
 
-# --- CARREGAMENTO DE DADOS ---
+# --- CARREGAMENTO ---
 try:
     df_estoque = carregar_dados("estoque_gps")
-    if not df_estoque.empty:
-        df_estoque['Codigo'] = df_estoque['Codigo'].astype(str).apply(lambda x: x[:-2] if x.endswith('.0') else x)
-        df_estoque['Quantidade'] = pd.to_numeric(df_estoque['Quantidade'], errors='coerce').fillna(0).astype(int)
-        df_estoque['Preco'] = pd.to_numeric(df_estoque['Preco'], errors='coerce').fillna(0.0)
-        df_estoque['Alerta Minimo'] = pd.to_numeric(df_estoque['Alerta Minimo'], errors='coerce').fillna(5).astype(int)
-        df_estoque['Anotacoes'] = df_estoque['Anotacoes'].fillna("").astype(str)
-    else:
-        df_estoque = pd.DataFrame(columns=['Codigo', 'Descricao', 'Quantidade', 'Preco', 'Alerta Minimo', 'Anotacoes'])
-except Exception as e:
-    st.error(f"Erro ao carregar: {e}")
+    df_estoque['Codigo'] = df_estoque['Codigo'].astype(str).apply(lambda x: x[:-2] if x.endswith('.0') else x)
+    df_estoque['Quantidade'] = pd.to_numeric(df_estoque['Quantidade'], errors='coerce').fillna(0).astype(int)
+    df_estoque['Preco'] = pd.to_numeric(df_estoque['Preco'], errors='coerce').fillna(0.0)
+    df_estoque['Alerta Minimo'] = pd.to_numeric(df_estoque['Alerta Minimo'], errors='coerce').fillna(5).astype(int)
+except:
+    st.error("Erro ao carregar dados.")
     st.stop()
 
-# --- MENU NAVEGAÇÃO ---
+# --- MENU E ABAS ---
 st.title("📦 Sistema de Estoque GPS")
 acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
-# --- ABAS ---
 if acao == "Estoque":
     st.subheader("📋 Estoque")
     termo = st.text_input("🔍 Buscar").lower()
@@ -132,8 +144,7 @@ elif acao == "Catálogo":
             reader = PyPDF2.PdfReader(f)
             for i, p in enumerate(reader.pages):
                 if termo in p.extract_text().upper():
-                    pag = i + 1
-                    break
+                    pag = i + 1; break
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
 
 elif acao == "Venda":
@@ -163,43 +174,22 @@ elif acao == "Orçamento":
         cli_o = st.text_input("Cliente:").strip()
         if st.button("🚀 Converter em Venda"):
             processar_venda(st.session_state["carrinho"], cli_o, df_estoque, tipo="Conversão")
-        if st.button("❌ Limpar"):
-            st.session_state["carrinho"] = []
-            st.rerun()
 
 elif acao == "Dashboard":
-    st.subheader("📊 Dashboard Gerencial")
+    st.subheader("📊 Dashboard")
     try:
         df_hist = carregar_dados("historico_vendas")
-        if not df_hist.empty:
-            df_hist['Data'] = pd.to_datetime(df_hist['Data'], dayfirst=True)
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("### 🔝 Top 5 Itens")
-                st.bar_chart(df_hist.groupby('Descricao')['Quantidade'].sum().nlargest(5))
-            with c2:
-                st.write("### 💰 Faturamento")
-                df_hist['Mes'] = df_hist['Data'].dt.strftime('%m/%Y')
-                st.line_chart(df_hist.groupby('Mes')['Valor Total'].sum())
-    except:
-        st.error("Erro ao carregar Dashboard.")
+        df_hist['Data'] = pd.to_datetime(df_hist['Data'], dayfirst=True)
+        c1, c2 = st.columns(2)
+        with c1: st.bar_chart(df_hist.groupby('Descricao')['Quantidade'].sum().nlargest(5))
+        with c2: 
+            df_hist['Mes'] = df_hist['Data'].dt.strftime('%m/%Y')
+            st.line_chart(df_hist.groupby('Mes')['Valor Total'].sum())
+    except: st.error("Erro no Dashboard.")
 
 elif acao == "Compras":
-    st.subheader("🛒 Lista de Compras Necessárias")
-    if st.button("🔄 Atualizar Lista de Compras Agora"):
+    st.subheader("🛒 Lista de Compras")
+    if st.button("🔄 Atualizar"):
         atualizar_lista_compras(df_estoque)
-        st.success("Lista sincronizada com a planilha!")
         st.rerun()
-    
-    df_nec = df_estoque[df_estoque['Quantidade'] <= df_estoque['Alerta Minimo']]
-    if not df_nec.empty:
-        st.warning(f"⚠️ {len(df_nec)} itens precisam de reposição!")
-        st.table(df_nec[['Codigo', 'Descricao', 'Quantidade', 'Alerta Minimo']])
-    else:
-        st.success("✅ Tudo ok!")
-
-elif acao == "Histórico de Vendas":
-    st.dataframe(carregar_dados("historico_vendas"))
-
-elif acao == "Pedidos":
-    st.write("Aba de Pedidos ativa.")
+    st.table(df_estoque[df_estoque['Quantidade'] <= df_estoque['Alerta Minimo']])
