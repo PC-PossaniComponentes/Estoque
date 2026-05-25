@@ -91,7 +91,7 @@ except Exception as e:
 
 # --- MENU NAVEGAÇÃO ---
 st.title("📦 Sistema de Estoque GPS")
-acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Histórico de Vendas", "Histórico de Trocas", "Pedidos", "Dashboard", "Compras"])
+acao = st.sidebar.radio("Navegação:", ["Entrada", "Estoque", "Catálogo", "Venda", "Orçamento", "Trocas", "Pedidos", "Compras", "Histórico de Vendas", "Histórico de Trocas", "Dashboard"])
 
 # --- ABAS ---
 if acao == "Estoque":
