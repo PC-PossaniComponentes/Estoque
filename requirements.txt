@@ -1,5 +1,6 @@
 streamlit
 pandas
-streamlit-gsheets
+gspread
+google-auth
 streamlit-pdf-viewer
 PyPDF2
