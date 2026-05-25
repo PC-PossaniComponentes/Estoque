@@ -136,10 +136,10 @@ elif acao == "Entrada":
 
 elif acao == "Catálogo":
     arquivo = "catalogo_oficial.pdf"
-    
-    # 1. Função que lê o PDF apenas uma vez e guarda na memória (CACHE)
+
+    # Esta função roda apenas UMA VEZ. Depois, ela pega o resultado da memória.
     @st.cache_data
-    def processar_texto_pdf(caminho):
+    def extrair_texto_pdf(caminho):
         texto_paginas = {}
         with open(caminho, "rb") as f:
             reader = PyPDF2.PdfReader(f)
@@ -149,34 +149,34 @@ elif acao == "Catálogo":
                     texto_paginas[i + 1] = texto.upper()
         return texto_paginas
 
-    # 2. Executa a leitura (só acontece na primeira vez)
-    with st.spinner("Indexando catálogo..."):
+    # Carrega o índice na memória (Rápido!)
+    with st.spinner("Carregando catálogo..."):
         try:
-            indice_texto = processar_texto_pdf(arquivo)
+            indice = extrair_texto_pdf(arquivo)
         except Exception as e:
-            st.error(f"Erro ao ler PDF: {e}")
+            st.error("Erro ao carregar PDF. Verifique se o arquivo está na pasta raiz.")
             st.stop()
 
-    # 3. Busca no índice (SUPER RÁPIDO)
-    termo = st.sidebar.text_input("🔍 Buscar código:").strip().upper()
+    # Busca apenas no índice (Instantâneo como um Ctrl+F)
+    termo = st.sidebar.text_input("🔍 Buscar código no catálogo:").strip().upper()
     pag = None
 
     if termo:
         encontrado = False
-        # Busca no nosso dicionário em memória (instantâneo)
-        for num_pag, texto in indice_texto.items():
+        for num_pag, texto in indice.items():
             if termo in texto:
                 pag = num_pag
                 encontrado = True
                 break
         
-        if not encontrado: 
+        if not encontrado:
             st.warning("Código não encontrado.")
         else:
-            st.success(f"Código encontrado na página {pag}!")
+            st.success(f"Encontrado na página {pag}!")
 
-    # 4. Exibe o PDF (o componente PDF Viewer já lida bem com isso)
+    # Exibe o PDF na página correta
     pdf_viewer(arquivo, scroll_to_page=pag if pag else 1)
+
 
 
 elif acao == "Venda":
