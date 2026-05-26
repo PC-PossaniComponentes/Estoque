@@ -6,7 +6,9 @@ import plotly.express as px  # <--- ADICIONE ESTA LINHA AQUI
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
 # --- CONEXÃO ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- CONEXÃO ---
+# O tipo agora deve ser uma string "gsheets"
+conn = st.connection("gsheets", type="gsheets")
 SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
 # --- FUNÇÕES OTIMIZADAS ---
