@@ -1,14 +1,29 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import plotly.express as px  # <--- ADICIONE ESTA LINHA AQUI
+import plotly.express as px
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
-# --- CONEXÃO ---
-# --- CONEXÃO ---
-# O tipo agora deve ser uma string "gsheets"
-conn = st.connection("gsheets", type="gsheets")
+# --- CONEXÃO MANUAL COM GSPREAD ---
+def carregar_dados(aba):
+    # Pega as credenciais do seu arquivo de segredos (secrets.toml)
+    creds_dict = st.secrets["gcp_service_account"] 
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    
+    # Abre a planilha pelo nome (troque pelo nome exato da sua planilha no Drive)
+    spreadsheet = client.open("estoque_gps") 
+    worksheet = spreadsheet.worksheet(aba)
+    
+    # Retorna os dados como DataFrame
+    return pd.DataFrame(worksheet.get_all_records())
+
+# Agora, em vez de usar 'conn', você chama a função:
+# df_estoque = carregar_dados("nome_da_aba_da_planilha")
 SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
 # --- FUNÇÕES OTIMIZADAS ---
