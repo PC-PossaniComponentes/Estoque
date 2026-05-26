@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 import plotly.express as px  # <--- ADICIONE ESTA LINHA AQUI
 
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
