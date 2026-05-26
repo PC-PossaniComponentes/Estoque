@@ -5,7 +5,8 @@ from datetime import datetime
 st.set_page_config(page_title="Sistema de Estoque GPS", layout="wide", page_icon="📦")
 
 # --- CONEXÃO ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = st.connection("gsheets", type="gsheets")
+
 SENHA_SISTEMA = st.secrets["SENHA_SISTEMA"]
 
 # --- FUNÇÕES ---
